@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest
+      - run: uv build
+
+  benchmark:
+    name: benchmark harness (Python 3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --extra benchmark
+      - run: uv run mypy --python-version 3.12 src/mqtt_spec_mcp/benchmark/*.py
+      - run: uv run python -m mqtt_spec_mcp.benchmark.cases
+      - run: >-
+          uv run mqtt-spec-bench-retrieval
+          --min-recall-at-1 0.70 --min-recall-at-5 0.60 --min-hit-rate 0.90
+          --min-mrr 0.78 --min-lookup-success 1.0
+      - run: uv run mqtt-spec-bench-micro --repetitions 10

@@ -139,7 +139,13 @@ TOOLS: tuple[types.Tool, ...] = (
                     **NULLABLE_STRING,
                     "description": "Section id (e.g. '3') or unambiguous title.",
                 },
-                "depth": {"type": "integer", "minimum": 1, "maximum": 5, "default": 1},
+                "depth": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "default": 1,
+                    "description": "Levels to list below parent (or from the top).",
+                },
             },
             [],
         ),
@@ -156,12 +162,22 @@ TOOLS: tuple[types.Tool, ...] = (
         ),
         input_schema=_schema(
             {
-                "query": {"type": "string", "minLength": 1},
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Words, a section id or a requirement label.",
+                },
                 "chapter": {
                     **NULLABLE_STRING,
                     "description": "Restrict to this section id/title and its subtree.",
                 },
-                "limit": {"type": "integer", "minimum": 1, "maximum": 5, "default": 3},
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "default": 3,
+                    "description": "Number of results.",
+                },
                 "normative_only": {
                     "type": "boolean",
                     "default": False,
@@ -187,12 +203,17 @@ TOOLS: tuple[types.Tool, ...] = (
                     "minLength": 1,
                     "description": "Section id (e.g. '3.1.2.4') or unambiguous title.",
                 },
-                "include_subsections": {"type": "boolean", "default": False},
+                "include_subsections": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Append all descendant sections.",
+                },
                 "max_chars": {
                     "type": "integer",
                     "minimum": 1000,
                     "maximum": 12000,
                     "default": 4000,
+                    "description": "Page size limit in characters.",
                 },
                 "cursor": {
                     **NULLABLE_STRING,
@@ -214,8 +235,16 @@ TOOLS: tuple[types.Tool, ...] = (
         ),
         input_schema=_schema(
             {
-                "kind": {"type": "string", "enum": list(KINDS)},
-                "query": {"type": "string", "minLength": 1},
+                "kind": {
+                    "type": "string",
+                    "enum": list(KINDS),
+                    "description": "Entity catalog to search.",
+                },
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Exact name, decimal, 0x hex value or label.",
+                },
                 "packet": {
                     **NULLABLE_STRING,
                     "description": "Packet filter: property, reason_code, return_code.",

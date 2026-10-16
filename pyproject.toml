@@ -6,14 +6,43 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Carter Tinney" }]
+keywords = ["mqtt", "mcp", "model-context-protocol", "specification", "oasis"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=2.3,<3",
     "pydantic>=2.7,<3",
 ]
 
+[project.urls]
+Repository = "https://github.com/cartertinney/mqtt-spec-mcp"
+Specification-3-1-1 = "https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html"
+Specification-5-0 = "https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html"
+
+[project.optional-dependencies]
+benchmark = [
+    "inspect-ai==0.3.281; python_version >= '3.11'",
+    "github-copilot-sdk==1.0.22; python_version >= '3.11'",
+    "tiktoken==0.14.0",
+]
+
 [project.scripts]
 mqtt-spec-mcp = "mqtt_spec_mcp.server:main"
+mqtt-spec-bench-retrieval = "mqtt_spec_mcp.benchmark.retrieval:main"
+mqtt-spec-bench-micro = "mqtt_spec_mcp.benchmark.micro:main"
+mqtt-spec-bench-copilot = "mqtt_spec_mcp.benchmark.copilot_runner:main"
+mqtt-spec-bench-report = "mqtt_spec_mcp.benchmark.report:main"
+
+[project.entry-points.inspect_ai]
+mqtt_spec_mcp = "mqtt_spec_mcp.benchmark.inspect_tasks"
 
 [dependency-groups]
 dev = [
@@ -53,10 +82,10 @@ strict = true
 files = ["src", "scripts", "tests"]
 mypy_path = "src"
 explicit_package_bases = true
+# Runner modules need the benchmark extra (Python 3.11+); CI checks them separately
+# with: mypy --python-version 3.12 src/mqtt_spec_mcp/benchmark/*.py
+exclude = ["src/mqtt_spec_mcp/benchmark/(copilot_runner|inspect_tasks|inspect_logs)\\.py$"]
 
-[[tool.mypy.overrides]]
-module = ["bs4.*"]
-ignore_missing_imports = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

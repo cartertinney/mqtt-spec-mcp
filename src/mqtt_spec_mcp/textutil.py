@@ -37,6 +37,8 @@ def tokenize(text: str) -> list[str]:
 
 def stem(token: str) -> str:
     """Very light plural folding so 'Subscriptions' matches 'Subscription'."""
+    if len(token) > 4 and token.endswith("ies"):
+        return token[:-3] + "y"
     if (
         len(token) > 3
         and token.endswith("s")

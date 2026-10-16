@@ -62,12 +62,16 @@ def test_tools_list_contract() -> None:
     assert props["mqtt_spec_search"]["limit"]["maximum"] == 5
     assert props["mqtt_spec_get"]["max_chars"]["maximum"] == 12000
     assert props["mqtt_spec_get"]["max_chars"]["default"] == 4000
-    assert props["mqtt_spec_outline"]["depth"] == {
-        "type": "integer",
-        "minimum": 1,
-        "maximum": 5,
-        "default": 1,
-    }
+    depth = props["mqtt_spec_outline"]["depth"]
+    assert (depth["type"], depth["minimum"], depth["maximum"], depth["default"]) == (
+        "integer",
+        1,
+        5,
+        1,
+    )
+    for tool in TOOLS:
+        for name, prop in tool.input_schema["properties"].items():
+            assert prop.get("description"), (tool.name, name)
     assert props["mqtt_spec_lookup"]["kind"]["enum"] == [
         "packet",
         "property",

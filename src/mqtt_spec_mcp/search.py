@@ -35,6 +35,7 @@ BOOST_TITLE_EQUAL = 300.0
 BOOST_TITLE_CONTAINS = 100.0
 BOOST_BODY_PHRASE = 10.0
 BOOST_TITLE_PAIR = 6.0
+BOOST_HEX_IDENTIFIER = 8.0
 BOOST_BODY_PAIR = 2.0
 FIRST_SNIPPET_CHARS = 1600
 OTHER_SNIPPET_CHARS = 320
@@ -194,6 +195,7 @@ class SearchIndex:
         identifier = label is not None or SECTION_ID.fullmatch(q_norm) is not None
         terms = [] if identifier else query_terms(query)
         pairs = [f" {a} {b} " for a, b in pairwise(terms)]
+        hex_terms = [t for t in terms if HEX_TOKEN.fullmatch(t)]
         stems = search_tokens(query)
         q_stems = " " + " ".join(stems) + " " if stems and not identifier else ""
         scored: list[tuple[float, _Doc]] = []
@@ -219,6 +221,9 @@ class SearchIndex:
                 score += BOOST_TITLE_CONTAINS
             if len(terms) > 1 and q_phrase and q_phrase in doc.body_match:
                 score += BOOST_BODY_PHRASE
+            for term in hex_terms:
+                if term in doc.body_tf or term in doc.title_tf:
+                    score += BOOST_HEX_IDENTIFIER
             for pair in pairs:
                 if pair in doc.title_joined:
                     score += BOOST_TITLE_PAIR
@@ -246,6 +251,7 @@ class SearchIndex:
         return best
 
 
+HEX_TOKEN = re.compile(r"0x[0-9a-f]+")
 SECTION_ID = re.compile(r"\d+(?:\.\d+)*")
 
 

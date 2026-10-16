@@ -91,3 +91,8 @@ exclude = ["src/mqtt_spec_mcp/benchmark/(copilot_runner|inspect_tasks|inspect_lo
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
+
+[[tool.mypy.overrides]]
+# Optional benchmark-extra dependency, imported lazily by the microbenchmark.
+module = ["tiktoken", "tiktoken.*"]
+ignore_missing_imports = true

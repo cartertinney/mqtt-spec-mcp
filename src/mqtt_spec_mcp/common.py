@@ -9,8 +9,11 @@ from .versions import PINS, VersionId
 
 OTHER_VERSION: dict[VersionId, VersionId] = {"3.1.1": "5.0", "5.0": "3.1.1"}
 
+# "MQTT 5", "MQTT5.0", "MQTT v3.1.1", "MQTT Version 5.0", "MQTT-5". A trailing
+# "-<digit>" means a requirement label (MQTT-3.1.2-4, MQTT-3-8.3-4), not a version.
 _VERSION_MENTION = re.compile(
-    r"\bmqtt[\s_]*(?:version[\s_]*|v[\s_]*)?(\d+(?:\.\d+)*)(?![\d.]*\d)",
+    r"\bmqtt(?:[\s_]*|\s*[-\u2010-\u2015]\s*)(?:version[\s_]*|v[\s_]*)?"
+    r"(\d+(?:\.\d+)*)(?![\d.]*\d)(?!\s*[-\u2010-\u2015]\s*\d)",
     re.IGNORECASE,
 )
 _MENTION_TO_VERSION = {
@@ -60,7 +63,13 @@ def check_version_mentions(version: VersionId, field: str, text: str | None) -> 
             continue
         if named == "3" and version == "3.1.1":
             continue
-        if named in PINS:
+        suggest = "3.1.1" if named == "3" else named
+        if suggest in PINS:
+            advice = (
+                f"Remove the version from the text; if you need MQTT {suggest}, make a "
+                f"separate call with version='{suggest}'."
+            )
+        elif named in PINS:
             advice = (
                 f"Remove the version from the text; if you need MQTT {named}, make a "
                 f"separate call with version='{named}'."

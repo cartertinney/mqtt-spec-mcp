@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from .engine import SectionInfo, SpecEngine
 
 CURSOR_FORMAT = 1
+# Real cursors are about 200 characters; anything far longer is not one of ours.
+MAX_CURSOR_CHARS = 512
 MAX_FRAGMENT_CHARS = 600
 MIN_FRAGMENT_CHARS = 40
 MAX_HEADING_DEPTH = 6
@@ -62,12 +64,16 @@ def decode_cursor(engine: SpecEngine, cursor: str) -> CursorState:
         "format). Call mqtt_spec_get again without a cursor to restart retrieval."
     )
     text = cursor.strip()
-    if not text or not re.fullmatch(r"[A-Za-z0-9_\-]+", text):
+    if (
+        not text
+        or len(text) > MAX_CURSOR_CHARS
+        or not re.fullmatch(r"[A-Za-z0-9_\-]+", text)
+    ):
         raise invalid
     try:
         raw = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
         data = json.loads(raw.decode("utf-8"))
-    except (binascii.Error, ValueError, UnicodeDecodeError):
+    except (binascii.Error, ValueError, UnicodeDecodeError, RecursionError):
         raise invalid from None
     if not isinstance(data, dict) or set(data) != set(_CURSOR_SCHEMA):
         raise invalid
@@ -175,7 +181,11 @@ def _block_fragments(block: Paragraph | ListItem | Table, limit: int) -> list[st
     return _split_words(block.text, limit)
 
 
-def placeholder(info: SectionInfo) -> str:
+def placeholder(info: SectionInfo, *, subsections_follow: bool) -> str:
+    if subsections_follow:
+        return f"_Section {info.id} has no text of its own; its subsections follow._"
+    if not info.children:
+        return f"_Section {info.id} has no text of its own in the publication._"
     return (
         f"_Section {info.id} has no text of its own. Call mqtt_spec_get with "
         "include_subsections=true, or mqtt_spec_outline with this section as parent, "
@@ -186,20 +196,26 @@ def placeholder(info: SectionInfo) -> str:
 def build_fragments(
     engine: SpecEngine, root: SectionInfo, include_subsections: bool, limit: int
 ) -> list[str]:
-    fragments: list[str] = []
-    if root.section.blocks:
-        for block in root.section.blocks:
-            fragments.extend(_block_fragments(block, limit))
-    elif not include_subsections or not root.children:
-        fragments.extend(_split_words(placeholder(root), limit))
+    fragments = _section_body(root, limit, include_subsections)
     if include_subsections:
         for info in engine.descendants(root.id):
             depth = min(MAX_HEADING_DEPTH, 1 + info.section.level - root.section.level)
             fragments.extend(
                 _split_words(f"{info.id} {info.title}", limit, "#" * depth + " ")
             )
-            for block in info.section.blocks:
-                fragments.extend(_block_fragments(block, limit))
+            fragments.extend(_section_body(info, limit, include_subsections))
+    return fragments
+
+
+def _section_body(
+    info: SectionInfo, limit: int, include_subsections: bool
+) -> list[str]:
+    if not info.section.blocks:
+        follow = include_subsections and bool(info.children)
+        return _split_words(placeholder(info, subsections_follow=follow), limit)
+    fragments: list[str] = []
+    for block in info.section.blocks:
+        fragments.extend(_block_fragments(block, limit))
     return fragments
 
 

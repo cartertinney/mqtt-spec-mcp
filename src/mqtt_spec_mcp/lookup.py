@@ -18,6 +18,7 @@ MAX_TERM_HINTS = 8
 WILL_PROPERTIES = "Will Properties"
 WILL_SECTION = "3.1.3.2"
 RETURN_CODE_PACKETS = ("CONNACK", "SUBACK")
+_PACKET_SUFFIX = re.compile(r"\s+(?:mqtt\s+)?(?:control\s+)?packet$")
 _NUMBER = re.compile(r"^(?:0x([0-9a-f]+)|(\d+))$", re.IGNORECASE)
 
 
@@ -53,7 +54,7 @@ class Lookup:
 
     def find_packet(self, text: str) -> Packet | None:
         number = parse_number(text)
-        wanted = normalize(text)
+        wanted = _PACKET_SUFFIX.sub("", normalize(text))
         for packet in self.engine.packets:
             if number is not None and packet.value == number:
                 return packet
@@ -108,7 +109,9 @@ class Lookup:
                 "call again."
             )
         if kind == "return_code" and (
-            packet is None or normalize(packet).upper() not in RETURN_CODE_PACKETS
+            packet is None
+            or (found := self.find_packet(packet)) is None
+            or found.name not in RETURN_CODE_PACKETS
         ):
             given = "no packet" if packet is None else f"packet='{packet}'"
             raise self.error(
@@ -246,9 +249,20 @@ class Lookup:
         return details
 
     def _reason_code(self, query: str, packet: str | None) -> dict[str, Any]:
-        codes: list[Code] = self._match_named(
-            list(self.engine.index.reason_codes), query, "value"
+        all_codes = list(self.engine.index.reason_codes)
+        names_packet = parse_number(query) is None and not any(
+            normalize(c.name) == normalize(query) for c in all_codes
         )
+        if names_packet and self.find_packet(query) is not None:
+            # A packet name would otherwise substring-match names such as
+            # "Normal disconnection"; point the caller at the right tool instead.
+            raise self.error(
+                f"'{query}' is an MQTT Control Packet name, not a reason code. Use "
+                f"kind=packet with query='{query}' to list the reason codes that "
+                f"packet can carry, or pass packet='{query}' with a reason code value "
+                "or name."
+            )
+        codes: list[Code] = self._match_named(all_codes, query, "value")
         if not codes:
             if self.find_packet(query) is not None and parse_number(query) is None:
                 raise self.error(

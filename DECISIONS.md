@@ -1,16 +1,7 @@
 # Decisions log
 
-Design choices made where the requirements were silent or left a choice open.
-Each entry states the decision and, briefly, why.
-
-## Clean room
-
-- Everything here was written from the requirements document, the public MCP
-  specification and SDK documentation (including the documentation shipped
-  inside the `mcp`, `inspect-ai` and `github-copilot-sdk` packages), and the two
-  public OASIS MQTT publications. The original `cartertinney/mqtt-spec-mcp`
-  repository, its forks, data files, benchmark cases and results were not
-  viewed, fetched or searched.
+Design choices behind the server, the index generator and the benchmark. Each entry
+states the decision and, briefly, why.
 
 ## Runtime and protocol
 
@@ -39,8 +30,7 @@ Canonicalization (`scripts/indexgen/canonical.py`) operates on raw bytes:
 
 SHA-256 of the canonical bytes is pinned per version in
 `src/mqtt_spec_mcp/versions.py`. Two fetches that differed in raw bytes (with and
-without the beacon) produced identical canonical hashes. These pins differ from
-the original project's, because the canonicalization was designed independently:
+without the beacon) produced identical canonical hashes:
 
 | Version | Canonical SHA-256 |
 | --- | --- |
@@ -150,7 +140,7 @@ appear in the body.
   The validator requires every fact to have one regex alternative matching its
   section's text, every case's reference answer to pass the scorer within its
   word limit, no 8-word run of a prompt or search query to be copied from the
-  spec, and lookups/queries not to reuse acceptance-test scenarios.
+  spec, and lookups/queries not to reuse unit-test scenarios.
 - Retrieval metrics: Recall@k = mean(|relevant ∩ top-k| / min(|relevant|, k));
   hit rate = any relevant section in the top 5; MRR on the first relevant hit.
 - Scorer negation (scorer 1.1.0): an affirmed fact is not credited if a negation

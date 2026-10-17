@@ -18,6 +18,10 @@ CAPTION = re.compile(r"^(Table|Figure)\s*\d")
 BULLETS = {"·", "•", "o", "§", "▪", "-", "–", "\uf0b7", "\uf0a7", "\uf0d8"}
 ORDINAL_MARKER = re.compile(r"^(\d+[.)]|[a-zA-Z][.)]|\([0-9a-zA-Z]+\))$")
 SENTINEL = "\x00"
+# Footnote markers such as QoS<sup>2</sup> keep their superscript form, so they are
+# not misread as part of the word ("QoS2" looks like QoS level 2).
+_SUPERSCRIPT = str.maketrans("0123456789+-=()ni", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿⁱ")
+_SUPERSCRIPTABLE = set("0123456789+-=()ni")
 BLOCK_LEVEL = {
     *HEADING_TAGS,
     *("p", "div", "li", "ul", "ol", "pre", "table", "tr", "td", "th", "blockquote"),
@@ -91,6 +95,19 @@ def _classes(tag: Tag) -> list[str]:
     return [value] if isinstance(value, str) else list(value)
 
 
+def _is_superscript(tag: Tag) -> bool:
+    style = str(tag.get("style") or "").replace(" ", "").lower()
+    return tag.name == "sup" or "vertical-align:super" in style
+
+
+def _superscript_text(tag: Tag) -> str:
+    text = tag.get_text()
+    stripped = text.strip()
+    if stripped and set(stripped) <= _SUPERSCRIPTABLE:
+        return text.translate(_SUPERSCRIPT)
+    return text
+
+
 def _is_spacer(tag: Tag) -> bool:
     style = str(tag.get("style") or "").replace(" ", "").lower()
     return tag.name == "span" and "font:7.0pt" in style and not tag.get_text().strip()
@@ -111,6 +128,8 @@ def element_text(tag: Tag) -> str:
                     parts.append(" ")
                 elif _is_spacer(child):
                     parts.append(SENTINEL)
+                elif _is_superscript(child):
+                    parts.append(_superscript_text(child))
                 elif child.name in BLOCK_LEVEL:
                     parts.append(" ")
                     walk(child)

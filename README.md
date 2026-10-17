@@ -233,9 +233,9 @@ Install the extra (Inspect AI and the GitHub Copilot SDK need Python 3.11 or new
 uv sync --extra benchmark
 ```
 
-The case corpus (`src/mqtt_spec_mcp/benchmark/data/cases-v5.0.jsonl`) has 120 newly
-authored MQTT 5.0 questions: 35 lookup, 30 normative, 25 applied, 15 synthesis and
-15 edge. Together they cover all seven chapters and all 15 packets. See
+The case corpus (`src/mqtt_spec_mcp/benchmark/data/cases-v5.0.jsonl`) has 120 MQTT
+5.0 questions: 35 lookup, 30 normative, 25 applied, 15 synthesis and 15 edge.
+Together they cover all seven chapters and all 15 packets. See
 [benchmarks/AUTHORING.md](benchmarks/AUTHORING.md) for how the cases were written and
 reviewed.
 
@@ -294,10 +294,9 @@ uv run pytest
 uv build
 ```
 
-The test suite covers the acceptance criteria. It includes a real stdio handshake,
-exhaustive pagination of every section in both versions at 1,000 characters, parser
-fixtures, completeness-gate and loader rejections, and the version-isolation
-scenarios.
+The test suite includes a real stdio handshake, exhaustive pagination of every
+section in both versions at 1,000 characters, parser fixtures, completeness-gate and
+loader rejections, and the version-isolation scenarios.
 
 ## License
 

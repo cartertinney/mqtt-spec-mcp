@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mqtt-spec": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "mqtt-spec-mcp"]
+    }
+  }
+}

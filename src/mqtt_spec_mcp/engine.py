@@ -11,11 +11,14 @@ from typing import Any
 from .common import QueryError, check_version_mentions, envelope
 from .schema import ListItem, Paragraph, Section, SpecIndex, Table
 from .search import SearchIndex
-from .textutil import normalize
+from .textutil import SECTION_PREFIX, normalize
 from .versions import PINS, Pin, VersionId, as_version
 
 SECTION_ID = re.compile(r"^\d+(?:\.\d+)*$")
-SECTION_WITH_TITLE = re.compile(r"^(\d+(?:\.\d+)*)\.?\s+(\S.*)$")
+# "<id> <title>", also with a separator: "3.1.2.4 - Clean Start", "3.1.2.4: Clean Start"
+SECTION_WITH_TITLE = re.compile(
+    r"^(\d+(?:\.\d+)*)\.?(?:\s*[:\-\u2010-\u2015]\s*|\s+)(\S.*)$"
+)
 MAX_DEPTH = 5
 
 
@@ -96,7 +99,7 @@ class SpecEngine:
 
     def resolve_section(self, raw: str, field: str = "section") -> SectionInfo:
         self.guard(field, raw)
-        text = " ".join(raw.split()).strip()
+        text = SECTION_PREFIX.sub("", " ".join(raw.split()).strip()).strip()
         v = self.version
         if not text:
             raise self.error(f"The {field} is empty. Pass a section id such as '3.1'.")
@@ -180,7 +183,7 @@ class SpecEngine:
 
 
 def _title_matches(given: str, actual: str) -> bool:
-    given = given.rstrip(" .:")
+    given = given.strip(" .:-")
     if given == actual:
         return True
     return actual.startswith(given + " ") or given.startswith(actual + " ")

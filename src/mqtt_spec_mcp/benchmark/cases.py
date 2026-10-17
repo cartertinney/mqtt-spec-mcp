@@ -38,7 +38,7 @@ COPY_SHINGLE = 8
 CASE_ID = r"^[a-z0-9]+(?:-[a-z0-9]+)+$"
 SECTION = r"^\d+(?:\.\d+)*$"
 
-# Acceptance-test scenarios from the requirements; benchmark cases must not reuse them.
+# Scenarios exercised by the unit tests; benchmark cases must not reuse them.
 ACCEPTANCE_QUERIES = frozenset(
     {
         "will delay interval",
@@ -229,7 +229,7 @@ def validate_cases(cases: Sequence[Case], *, partial: bool = False) -> list[str]
             if _shingles(text, COPY_SHINGLE) & spec_shingles:
                 problems.append(f"{where}: {label} copies spec text verbatim")
         if " ".join(case.search_query.lower().split()) in ACCEPTANCE_QUERIES:
-            problems.append(f"{where}: search_query reuses an acceptance-test query")
+            problems.append(f"{where}: search_query reuses a unit-test query")
         if case.lookup is not None:
             key = (
                 case.lookup.kind,
@@ -237,7 +237,7 @@ def validate_cases(cases: Sequence[Case], *, partial: bool = False) -> list[str]
                 case.lookup.packet.strip().lower() if case.lookup.packet else None,
             )
             if key in ACCEPTANCE_LOOKUPS:
-                problems.append(f"{where}: lookup reuses an acceptance-test scenario")
+                problems.append(f"{where}: lookup reuses a unit-test scenario")
             ok, detail = run_lookup(service, case.lookup)
             if not ok:
                 problems.append(f"{where}: lookup expectation failed: {detail[:200]}")

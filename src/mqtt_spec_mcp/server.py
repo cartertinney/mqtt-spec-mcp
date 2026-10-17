@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
@@ -11,7 +12,7 @@ import anyio
 from mcp import types
 from mcp.server import Server, ServerRequestContext
 from mcp.server.stdio import stdio_server
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from . import __version__
 from .common import QueryError
@@ -21,6 +22,8 @@ from .lookup import KINDS, lookup
 from .render import get_section
 from .search import search
 from .versions import PINS, SUPPORTED_VERSIONS, VersionId, as_version
+
+logger = logging.getLogger(__name__)
 
 SERVER_NAME = "mqtt-spec-mcp"
 SERVER_TITLE = "MQTT Specification"
@@ -84,6 +87,25 @@ ANNOTATIONS = types.ToolAnnotations(
 class _Args(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     version: Version
+
+    @model_validator(mode="before")
+    @classmethod
+    def _omit_empty_optionals(cls, data: Any) -> Any:
+        """Treat null, and blank text, in an optional argument as "not given".
+
+        LLM clients often send ``"cursor": ""`` or ``"limit": null`` for arguments
+        they mean to leave out. Required arguments and unknown keys stay strict.
+        """
+        if not isinstance(data, dict):
+            return data
+        cleaned = {}
+        for key, value in data.items():
+            field = cls.model_fields.get(key)
+            empty = value is None or (isinstance(value, str) and not value.strip())
+            if field is not None and not field.is_required() and empty:
+                continue
+            cleaned[key] = value
+        return cleaned
 
 
 class OutlineArgs(_Args):
@@ -314,12 +336,23 @@ class MqttSpecService:
                 f"Unknown tool {name!r}. Available tools: {', '.join(TOOL_NAMES)}.",
                 True,
             )
+        args = dict(arguments or {})
         try:
-            return ToolOutcome(handler(dict(arguments or {})), False)
+            return ToolOutcome(handler(args), False)
         except ValidationError as exc:
             return ToolOutcome(_validation_message(name, exc), True)
         except QueryError as exc:
             return ToolOutcome(str(exc), True)
+        except Exception as exc:  # never leak an unscoped error to the client
+            logger.exception("unexpected error in %s", name)
+            message = (
+                f"Internal error while running {name} ({type(exc).__name__}). This is "
+                "a server bug; retrying with the same arguments will fail again."
+            )
+            version = args.get("version")
+            if isinstance(version, str) and version in SUPPORTED_VERSIONS:
+                return ToolOutcome(str(QueryError(as_version(version), message)), True)
+            return ToolOutcome(message, True)
 
     def _outline(self, raw: dict[str, Any]) -> str:
         args = OutlineArgs.model_validate(raw)

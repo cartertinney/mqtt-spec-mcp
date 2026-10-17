@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from .textutil import (
     LABEL_PATTERN,
+    SECTION_PREFIX,
     canonical_label,
     looks_like_label,
     normalize,
@@ -40,6 +41,7 @@ BOOST_BODY_PAIR = 2.0
 FIRST_SNIPPET_CHARS = 1600
 OTHER_SNIPPET_CHARS = 320
 PARENT_SNIPPET_CHARS = 700
+MAX_QUERY_TERMS = 32
 MAX_SNIPPET_LABELS = 5
 
 STOPWORDS = frozenset(
@@ -185,6 +187,7 @@ class SearchIndex:
     ) -> list[tuple[float, _Doc]]:
         engine = self.engine
         q_norm = normalize(query)
+        q_id = SECTION_PREFIX.sub("", q_norm).strip().rstrip(".,;:")
         q_phrase = phrase_form(query)
         label = (
             canonical_label(query, engine.version) if looks_like_label(query) else None
@@ -192,7 +195,7 @@ class SearchIndex:
         req = engine.requirements.get(label) if label is not None else None
         label_home = req.section if req is not None else None
         # Identifier queries are matched exactly; their digits are noise for BM25.
-        identifier = label is not None or SECTION_ID.fullmatch(q_norm) is not None
+        identifier = label is not None or SECTION_ID.fullmatch(q_id) is not None
         terms = [] if identifier else query_terms(query)
         pairs = [f" {a} {b} " for a, b in pairwise(terms)]
         hex_terms = [t for t in terms if HEX_TOKEN.fullmatch(t)]
@@ -209,7 +212,7 @@ class SearchIndex:
             if score > 0:
                 normative = min(len(info.section.requirements), NORMATIVE_BONUS_CAP)
                 score += NORMATIVE_BONUS * normative
-            if q_norm == info.id:
+            if q_id == info.id:
                 score += BOOST_SECTION_ID
             if label is not None and label in info.section.requirements:
                 score += (
@@ -263,7 +266,7 @@ def query_terms(query: str) -> list[str]:
     tokens = search_tokens(query)
     content = [t for t in tokens if t not in STOPWORDS]
     chosen = content or tokens
-    return list(dict.fromkeys(chosen))
+    return list(dict.fromkeys(chosen))[:MAX_QUERY_TERMS]
 
 
 def window(text: str, anchor: int | None, budget: int) -> str:

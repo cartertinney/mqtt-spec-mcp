@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "mqtt-spec": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["--directory", "${workspaceFolder}", "run", "mqtt-spec-mcp"]
+    }
+  }
+}

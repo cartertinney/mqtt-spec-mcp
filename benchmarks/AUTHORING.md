@@ -17,9 +17,6 @@ Corpus: `src/mqtt_spec_mcp/benchmark/data/cases-v5.0.jsonl` (120 MQTT 5.0 cases:
   the findings. The maintainer agent then integrated the corpus and resolved the
   remaining items.
 
-None of these agents had seen the original `cartertinney/mqtt-spec-mcp` repository.
-All of them were told not to use the internet, GitHub or any other repository.
-
 ## Sources
 
 The only reference was the OASIS MQTT Version 5.0 publication (OASIS Standard,
@@ -28,10 +25,8 @@ sections with `mqtt_spec_get`, `mqtt_spec_search` and `mqtt_spec_lookup`, or
 directly from the in-memory section text. Each case's `provenance` field names the
 sections its answer key came from.
 
-**No original benchmark material was consulted.** That includes the original
-project's case corpus, case ids, prompts, regexes, answer keys and stored results.
-The authors were also told not to read this repository's `tests/` directory or the
-requirements document, so the benchmark stays independent of the acceptance tests.
+The authors did not read this repository's `tests/` directory, so the benchmark
+stays independent of the unit tests.
 
 ## Authoring rules applied
 
@@ -43,9 +38,8 @@ requirements document, so the benchmark stays independent of the acceptance test
   section's own text.
 - Every case has a reference answer. That answer must pass the scorer within the
   case's word limit.
-- Lookups and search queries that reuse acceptance-test scenarios are rejected.
-- Case ids describe the question (`<area>-<topic>`), with no attempt to match any
-  prior naming.
+- Lookups and search queries that reuse unit-test scenarios are rejected.
+- Case ids describe the question (`<area>-<topic>`).
 
 ## Review outcome
 

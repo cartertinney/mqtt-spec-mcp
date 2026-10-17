@@ -7,6 +7,7 @@ import json
 import os
 import random
 from collections.abc import Iterable, Sequence
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -45,9 +46,18 @@ def benchmark_hash(cases_path: Path | None = None) -> str:
 
 def server_hash() -> str:
     tools = [t.model_dump(by_alias=True, exclude_none=True) for t in TOOLS]
-    pins = {v: p.source_sha256 for v, p in PINS.items()}
+    data_dir = resources.files("mqtt_spec_mcp").joinpath("data")
+    indexes = {
+        v: hashlib.sha256(data_dir.joinpath(p.data_file).read_bytes()).hexdigest()
+        for v, p in PINS.items()
+    }
     return _digest(
-        {"tools": tools, "instructions": INSTRUCTIONS, "pins": pins, "pkg": __version__}
+        {
+            "tools": tools,
+            "instructions": INSTRUCTIONS,
+            "indexes": indexes,
+            "pkg": __version__,
+        }
     )
 
 

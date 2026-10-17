@@ -12,6 +12,13 @@ _WS = re.compile(r"\s+")
 _TOKEN = re.compile(r"[0-9a-z]+")
 _NATURAL = re.compile(r"(\d+)")
 
+# Reference words agents put in front of a section number: "Section 3.1", "§3.1".
+SECTION_PREFIX = re.compile(
+    r"^(?:§+\s*|(?:sections?|sect\.|sec\.|chapter|ch\.)\s*(?=\d))", re.IGNORECASE
+)
+# A requirement label written without its "MQTT-" prefix, e.g. "3.1.2-4".
+_BARE_LABEL = re.compile(r"\d+(?:\.\d+)+\.?-\d+")
+
 LABEL_PATTERN = re.compile(r"\[\s*(MQTT\s*-[0-9.\-\s]*[0-9])\s*\]", re.IGNORECASE)
 
 # Printed 3.1.1 labels that are indexed under a different canonical spelling.
@@ -53,9 +60,10 @@ def search_tokens(text: str) -> list[str]:
 
 
 def clean_label(raw: str) -> str:
-    """Strip brackets and whitespace, uppercase, unify dashes."""
+    """Strip brackets, whitespace and trailing punctuation; uppercase; unify dashes."""
     text = unicodedata.normalize("NFKC", raw).translate(_DASHES)
-    return re.sub(r"[\s\[\]]+", "", text).upper()
+    text = re.sub(r"[\s\[\]]+", "", text).upper().rstrip(".,;:")
+    return f"MQTT-{text}" if _BARE_LABEL.fullmatch(text) else text
 
 
 def canonical_label(raw: str, version: str) -> str:

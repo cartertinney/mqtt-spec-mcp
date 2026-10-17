@@ -1,0 +1,275 @@
+"""Regression tests for bugs found after the first release."""
+
+from __future__ import annotations
+
+import base64
+import json
+import os
+import subprocess
+import sys
+from collections.abc import Callable
+from typing import Any
+
+import pytest
+
+from mqtt_spec_mcp.search import MAX_QUERY_TERMS, query_terms
+from mqtt_spec_mcp.server import MqttSpecService
+from scripts.indexgen.parse import parse_document
+from tests.conftest import Call, JsonCall
+
+GET_31 = {"section": "3.1", "include_subsections": True, "max_chars": 1000}
+
+
+def _b64(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [_b64(b"[" * 100_000), _b64(b'{"a":' * 50_000), "A" * 600, _b64(b"[" * 300)],
+)
+@pytest.mark.parametrize("version", ["3.1.1", "5.0"])
+def test_hostile_cursors_are_rejected_cleanly(
+    err: Callable[..., str], cursor: str, version: str
+) -> None:
+    message = err("mqtt_spec_get", version=version, cursor=cursor, **GET_31)
+    assert "cursor is invalid" in message
+    assert message.startswith(f"MQTT {version} only (")
+
+
+def test_unexpected_errors_stay_scoped(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = MqttSpecService(["5.0"])
+
+    def boom(raw: dict[str, Any]) -> str:
+        raise KeyError("boom")
+
+    monkeypatch.setitem(service._handlers, "mqtt_spec_outline", boom)
+    outcome = service.call("mqtt_spec_outline", {"version": "5.0"})
+    assert outcome.is_error
+    assert outcome.text.startswith("MQTT 5.0 only (")
+    assert outcome.text.endswith("No other version was queried.")
+    assert "Internal error" in outcome.text
+    unscoped = service.call("mqtt_spec_outline", {"version": "latest"})
+    assert unscoped.is_error
+    assert "Internal error" in unscoped.text
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("mqtt_spec_outline", {"parent": "", "depth": None}),
+        ("mqtt_spec_outline", {"parent": None}),
+        ("mqtt_spec_search", {"query": "keep alive", "chapter": " ", "limit": None}),
+        ("mqtt_spec_search", {"query": "keep alive", "normative_only": None}),
+        (
+            "mqtt_spec_get",
+            {"section": "3.1.2.4", "cursor": "", "max_chars": None},
+        ),
+        ("mqtt_spec_get", {"section": "3.1.2.4", "include_subsections": None}),
+        ("mqtt_spec_lookup", {"kind": "packet", "query": "PUBACK", "packet": ""}),
+        ("mqtt_spec_lookup", {"kind": "term", "query": "Session", "packet": None}),
+    ],
+)
+def test_empty_optional_arguments_mean_omitted(
+    call: Call, tool: str, args: dict[str, Any]
+) -> None:
+    outcome = call(tool, version="5.0", **args)
+    assert not outcome.is_error, outcome.text
+
+
+def test_required_and_unknown_arguments_stay_strict(err: Callable[..., str]) -> None:
+    assert "version" in err("mqtt_spec_outline", version=None)
+    assert "query" in err("mqtt_spec_search", version="5.0", query="")
+    assert "bogus" in err("mqtt_spec_search", version="5.0", query="x", bogus="")
+    assert "section" in err("mqtt_spec_get", version="5.0", section=None)
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "Section 3.1.2.4",
+        "section 3.1.2.4 Clean Start",
+        "§3.1.2.4",
+        "§ 3.1.2.4",
+        "3.1.2.4 - Clean Start",
+        "3.1.2.4: Clean Start",
+        "3.1.2.4 – Clean Start",
+        "3.1.2.4.",
+    ],
+)
+def test_section_reference_forms(call: Call, reference: str) -> None:
+    outcome = call("mqtt_spec_get", version="5.0", section=reference)
+    assert not outcome.is_error, outcome.text
+    assert outcome.text.startswith("# 3.1.2.4 Clean Start")
+
+
+def test_separator_does_not_hide_title_mismatch(err: Callable[..., str]) -> None:
+    message = err("mqtt_spec_get", version="5.0", section="3.1.2.4 - Clean Session")
+    assert "title does not match" in message
+
+
+@pytest.mark.parametrize("packet", ["CONNECT", "DISCONNECT", "AUTH", "connack"])
+def test_reason_code_query_naming_a_packet(
+    err: Callable[..., str], packet: str
+) -> None:
+    message = err("mqtt_spec_lookup", version="5.0", kind="reason_code", query=packet)
+    assert "Control Packet name, not a reason code" in message
+    assert "kind=packet" in message
+
+
+def test_reason_code_exact_names_still_work(ok: JsonCall) -> None:
+    for name in ("Malformed Packet", "Server busy", "normal disconnection"):
+        result = ok("mqtt_spec_lookup", version="5.0", kind="reason_code", query=name)
+        assert result["matches"]
+
+
+@pytest.mark.parametrize(
+    ("packet", "expected"),
+    [
+        ("2", "CONNACK"),
+        ("9", "SUBACK"),
+        ("connack packet", "CONNACK"),
+        ("0x09", "SUBACK"),
+    ],
+)
+def test_return_code_packet_by_number_or_spelling(
+    ok: JsonCall, packet: str, expected: str
+) -> None:
+    result = ok(
+        "mqtt_spec_lookup",
+        version="3.1.1",
+        kind="return_code",
+        query="0",
+        packet=packet,
+    )
+    assert result["matches"][0]["packets"] == [expected]
+
+
+def test_packet_lookup_accepts_packet_suffix(ok: JsonCall) -> None:
+    result = ok("mqtt_spec_lookup", version="5.0", kind="packet", query="PUBACK packet")
+    assert result["name"] == "PUBACK"
+
+
+@pytest.mark.parametrize(
+    ("version", "query", "label"),
+    [
+        ("5.0", "MQTT-3.1.2-4.", "MQTT-3.1.2-4"),
+        ("5.0", "3.1.2-4", "MQTT-3.1.2-4"),
+        ("5.0", "[MQTT-3.1.2-4],", "MQTT-3.1.2-4"),
+        ("3.1.1", "3.3.1.-1", "MQTT-3.3.1-1"),
+    ],
+)
+def test_requirement_label_spellings(
+    ok: JsonCall, version: str, query: str, label: str
+) -> None:
+    result = ok("mqtt_spec_lookup", version=version, kind="requirement", query=query)
+    assert result["id"] == label
+    found = ok("mqtt_spec_search", version=version, query=query, limit=1)
+    assert found["results"][0]["requirements"][0] == label
+
+
+@pytest.mark.parametrize("query", ["3.1.2.4.", "section 3.1.2.4", "§3.1.2.4"])
+def test_search_section_id_forms(ok: JsonCall, query: str) -> None:
+    result = ok("mqtt_spec_search", version="5.0", query=query)
+    assert result["results"][0]["section"] == "3.1.2.4"
+
+
+@pytest.mark.parametrize(
+    ("version", "text"),
+    [
+        ("3.1.1", "MQTT-5 shared subscription"),
+        ("3.1.1", "MQTT-5.0 session expiry"),
+        ("5.0", "MQTT-3.1.1 clean session"),
+        ("5.0", "mqtt – 3.1.1 clean session"),
+    ],
+)
+def test_hyphenated_version_mentions(
+    err: Callable[..., str], version: str, text: str
+) -> None:
+    assert "selected version" in err("mqtt_spec_search", version=version, query=text)
+
+
+@pytest.mark.parametrize(
+    ("version", "label"),
+    [("3.1.1", "MQTT-3-8.3-4"), ("5.0", "MQTT-3.1.0-1"), ("3.1.1", "MQTT-3.1.2.7")],
+)
+def test_labels_are_not_version_mentions(
+    ok: JsonCall, version: str, label: str
+) -> None:
+    ok("mqtt_spec_lookup", version=version, kind="requirement", query=label)
+
+
+def test_bare_mqtt_3_suggests_311(err: Callable[..., str]) -> None:
+    message = err("mqtt_spec_search", version="5.0", query="MQTT 3 clean session")
+    assert "version='3.1.1'" in message
+
+
+def test_placeholders_for_sections_without_text(call: Call) -> None:
+    page = call("mqtt_spec_get", version="5.0", section="3", include_subsections=True)
+    body = page.text.split("\n\n")
+    assert body[2] == "_Section 3 has no text of its own; its subsections follow._"
+    alone = call("mqtt_spec_get", version="5.0", section="3").text
+    assert "include_subsections=true" in alone
+    nested = call(
+        "mqtt_spec_get",
+        version="5.0",
+        section="1",
+        include_subsections=True,
+        max_chars=12000,
+    ).text
+    assert "_Section 1 has no text of its own; its subsections follow._" in nested
+
+
+def test_superscript_footnote_markers() -> None:
+    html = (
+        "<html><body><h1>1 Intro</h1><p>QoS<sup>2</sup> and DUP<sup>1</sup>, "
+        "the 20<sup>th</sup> of June, 2<span style='vertical-align:super'>16</span>"
+        "</p></body></html>"
+    )
+    text = parse_document(html).sections[0].blocks[0]
+    assert getattr(text, "text", "") == "QoS² and DUP¹, the 20th of June, 2¹⁶"
+
+
+def test_superscripts_in_bundled_311_index(ok: JsonCall) -> None:
+    publish = ok("mqtt_spec_lookup", version="3.1.1", kind="packet", query="PUBLISH")
+    assert "QoS²" in publish["fixed_header_flags"]
+    assert "QoS2" not in publish["fixed_header_flags"]
+    hit = ok("mqtt_spec_search", version="3.1.1", query="session present flag SP1")
+    assert any("SP¹" in r["snippet"] for r in hit["results"])
+
+
+def test_long_queries_are_capped(call: Call) -> None:
+    query = " ".join(f"term{i}" for i in range(5000))
+    assert len(query_terms(query)) == MAX_QUERY_TERMS
+    assert not call("mqtt_spec_search", version="5.0", query=query).is_error
+
+
+_DETERMINISM_SCRIPT = """
+import json
+from mqtt_spec_mcp.server import MqttSpecService
+s = MqttSpecService()
+calls = [
+    ("mqtt_spec_search", {"version": "5.0", "query": "retained message wildcard"}),
+    ("mqtt_spec_search", {"version": "3.1.1", "query": "clean session", "limit": 5}),
+    ("mqtt_spec_lookup", {"version": "5.0", "kind": "reason_code", "query": "0x87"}),
+    ("mqtt_spec_get", {"version": "5.0", "section": "3.3", "max_chars": 12000}),
+    ("mqtt_spec_outline", {"version": "3.1.1", "depth": 3}),
+]
+print(json.dumps([s.call(name, args).text for name, args in calls]))
+"""
+
+
+def test_output_is_identical_across_hash_seeds() -> None:
+    outputs = []
+    for seed in ("1", "4242"):
+        env = {**os.environ, "PYTHONHASHSEED": seed}
+        done = subprocess.run(
+            [sys.executable, "-c", _DETERMINISM_SCRIPT],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=True,
+        )
+        outputs.append(done.stdout)
+    assert outputs[0] == outputs[1]
+    assert json.loads(outputs[0])

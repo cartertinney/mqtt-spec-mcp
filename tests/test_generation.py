@@ -104,6 +104,31 @@ def test_rejects_bad_parent_and_duplicate_section(v50: SpecIndex) -> None:
     assert any("duplicate section id" in p for p in found)
 
 
+def test_rejects_duplicates_replacing_missing_catalog_entries(v50: SpecIndex) -> None:
+    props = (v50.properties[0], v50.properties[0], *v50.properties[2:])
+    found = problems(v50.model_copy(update={"properties": props}), "5.0")
+    assert any("duplicate property id 1" in p for p in found)
+    assert any("property identifiers differ" in p for p in found)
+    codes = (v50.reason_codes[0], v50.reason_codes[0], *v50.reason_codes[2:])
+    found = problems(v50.model_copy(update={"reason_codes": codes}), "5.0")
+    assert any("duplicate reason code row" in p for p in found)
+    terms = (v50.terms[0], v50.terms[0], *v50.terms[2:])
+    found = problems(v50.model_copy(update={"terms": terms}), "5.0")
+    assert any("duplicate glossary term" in p for p in found)
+    assert any("glossary terms differ" in p for p in found)
+
+
+def test_rejects_property_without_section_in_packet_subtree(v50: SpecIndex) -> None:
+    index = next(i for i, p in enumerate(v50.properties) if p.hex == "0x02")
+    prop = v50.properties[index]
+    trimmed = prop.model_copy(
+        update={"sections": tuple(s for s in prop.sections if not s.startswith("3.3."))}
+    )
+    props = (*v50.properties[:index], trimmed, *v50.properties[index + 1 :])
+    found = problems(v50.model_copy(update={"properties": props}), "5.0")
+    assert any("has no section under PUBLISH" in p for p in found)
+
+
 def test_reason_code_for_unknown_packet(v50: SpecIndex) -> None:
     code = Code(value=1, hex="0x01", name="x", packets=("NOPE",), section="2.4")
     broken = v50.model_copy(update={"reason_codes": (*v50.reason_codes[1:], code)})

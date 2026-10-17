@@ -40,7 +40,39 @@ EXPECTED_RETURN_CODES = {
     ("SUBACK", 128),
 }
 
+# Catalog identities stated by the publications themselves (glossary in 1.2,
+# Property Identifier table in 5.0 section 2.2.2.2).
+SHARED_TERMS = {
+    "Network Connection",
+    "Application Message",
+    "Client",
+    "Server",
+    "Session",
+    "Subscription",
+    "Topic Name",
+    "Topic Filter",
+    "MQTT Control Packet",
+}
+EXPECTED_TERMS: dict[str, set[str]] = {
+    "3.1.1": SHARED_TERMS,
+    "5.0": SHARED_TERMS
+    | {
+        "Shared Subscription",
+        "Wildcard Subscription",
+        "Malformed Packet",
+        "Protocol Error",
+        "Will Message",
+        "Disallowed Unicode code point",
+    },
+}
+EXPECTED_PROPERTY_IDS: dict[str, set[int]] = {
+    "3.1.1": set(),
+    "5.0": {1, 2, 3, 8, 9, 11, 17, 18, 19, 21, 22, 23, 24, 25, 26, 28, 31, 33}
+    | {34, 35, 36, 37, 38, 39, 40, 41, 42},
+}
+
 WILL_PROPERTIES = "Will Properties"
+WILL_PROPERTIES_SECTION = "3.1.3.2"
 
 
 class CompletenessError(ValueError):
@@ -101,7 +133,31 @@ def check_completeness(index: SpecIndex, version: str) -> None:
         if p.section not in sections:
             problems.append(f"packet {p.name} points at missing section {p.section}")
 
+    catalogs: tuple[tuple[str, list[object]], ...] = (
+        ("property id", [p.id for p in index.properties]),
+        ("property name", [p.name for p in index.properties]),
+        ("reason code row", [(c.value, c.name) for c in index.reason_codes]),
+        ("glossary term", [t.name for t in index.terms]),
+    )
+    for label, entries in catalogs:
+        for dup in _dupes(entries):
+            problems.append(f"duplicate {label} {dup}")
+    if {p.id for p in index.properties} != EXPECTED_PROPERTY_IDS[version]:
+        problems.append("property identifiers differ from the publication's table")
+    if {t.name for t in index.terms} != EXPECTED_TERMS[version]:
+        problems.append("glossary terms differ from the publication's section 1.2")
+
+    homes = {p.name: p.section for p in index.packets}
+    homes[WILL_PROPERTIES] = WILL_PROPERTIES_SECTION
     for prop in index.properties:
+        for pkt in prop.packets:
+            root = homes.get(pkt)
+            if root and not any(
+                s == root or s.startswith(root + ".") for s in prop.sections
+            ):
+                problems.append(
+                    f"property {prop.name} has no section under {pkt} ({root})"
+                )
         for sec in prop.sections:
             if sec not in sections:
                 problems.append(f"property {prop.name} points at missing section {sec}")

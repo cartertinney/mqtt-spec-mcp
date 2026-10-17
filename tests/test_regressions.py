@@ -273,3 +273,106 @@ def test_output_is_identical_across_hash_seeds() -> None:
         outputs.append(done.stdout)
     assert outputs[0] == outputs[1]
     assert json.loads(outputs[0])
+
+
+@pytest.mark.parametrize(
+    ("version", "text"),
+    [("3.1.1", "MQTT version: 5.0 Session"), ("5.0", "MQTT v=3.1.1 clean session")],
+)
+def test_version_mentions_with_separators(
+    err: Callable[..., str], version: str, text: str
+) -> None:
+    assert "selected version" in err("mqtt_spec_search", version=version, query=text)
+
+
+@pytest.mark.parametrize(
+    ("label", "statement"),
+    [
+        ("MQTT-3.2.2-8", "MUST use one of the Connect Reason Code values"),
+        ("MQTT-4.2.0-1", "underlying transport protocols"),
+    ],
+)
+def test_reconciled_label_search_shows_the_requirement(
+    ok: JsonCall, label: str, statement: str
+) -> None:
+    first = ok("mqtt_spec_search", version="5.0", query=label, limit=1)["results"][0]
+    assert first["requirements"][0] == label
+    assert statement in first["snippet"]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"query": "session", "limit": 0},
+        {"query": "session", "extra": 1},
+        {"limit": 3},
+    ],
+)
+def test_argument_errors_are_scoped_when_version_is_valid(
+    err: Callable[..., str], args: dict[str, Any]
+) -> None:
+    message = err("mqtt_spec_search", version="5.0", **args)
+    assert message.startswith("MQTT 5.0 only (")
+    assert message.endswith("No other version was queried.")
+    assert "Invalid arguments" in message
+
+
+def test_title_with_publication_artifact_resolves(call: Call, ok: JsonCall) -> None:
+    page = call(
+        "mqtt_spec_get", version="5.0", section="3.3.2.3.3 Message Expiry Interval"
+    )
+    assert not page.is_error, page.text
+    prop = ok(
+        "mqtt_spec_lookup",
+        version="5.0",
+        kind="property",
+        query="0x02",
+        packet="PUBLISH",
+    )
+    assert [d["section"] for d in prop["details"]] == ["3.3.2.3.3"]
+    outcome = call("mqtt_spec_outline", version="5.0", parent="Message Expiry Interval")
+    assert outcome.is_error
+    assert "3.1.3.2.4" in outcome.text
+    assert "3.3.2.3.3" in outcome.text
+
+
+def test_snippets_anchor_on_whole_words(ok: JsonCall) -> None:
+    hits = ok("mqtt_spec_search", version="5.0", query="uri", limit=5)["results"]
+    refs = [r for r in hits if r["section"] == "1.4"]
+    assert refs
+    assert "URI" in refs[0]["snippet"]
+
+
+def test_snippet_finds_the_densest_match(ok: JsonCall) -> None:
+    result = ok(
+        "mqtt_spec_search",
+        version="5.0",
+        query="PUBLISH Topic Alias greater than Topic Alias Maximum",
+    )
+    first = result["results"][0]
+    assert first["section"] == "3.3.2.3.4"
+    assert "greater than the Topic Alias Maximum" in first["snippet"]
+
+
+@pytest.mark.parametrize("kind", ["packet", "property", "reason_code"])
+def test_huge_numbers_are_ordinary_misses(err: Callable[..., str], kind: str) -> None:
+    message = err("mqtt_spec_lookup", version="5.0", kind=kind, query="9" * 4301)
+    assert "Internal error" not in message
+    assert message.startswith("MQTT 5.0 only (")
+
+
+def test_exact_section_titles_naming_a_version_resolve(
+    call: Call, err: Callable[..., str]
+) -> None:
+    for reference in ("1.8.1 MQTT v3.1.1", "MQTT v3.1.1", "1.8.2 MQTT v5.0"):
+        page = call("mqtt_spec_get", version="5.0", section=reference)
+        assert not page.is_error, page.text
+    assert "selected version" in err(
+        "mqtt_spec_search", version="5.0", query="MQTT v3.1.1"
+    )
+    assert "selected version" in err(
+        "mqtt_spec_get", version="5.0", section="MQTT Version 3.1.1 CONNECT"
+    )
+    assert "selected version" in err(
+        "mqtt_spec_outline", version="3.1.1", parent="MQTT v5.0"
+    )

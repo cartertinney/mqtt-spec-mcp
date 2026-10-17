@@ -19,7 +19,8 @@ WILL_PROPERTIES = "Will Properties"
 WILL_SECTION = "3.1.3.2"
 RETURN_CODE_PACKETS = ("CONNACK", "SUBACK")
 _PACKET_SUFFIX = re.compile(r"\s+(?:mqtt\s+)?(?:control\s+)?packet$")
-_NUMBER = re.compile(r"^(?:0x([0-9a-f]+)|(\d+))$", re.IGNORECASE)
+# Catalog values are small; longer digit strings are treated as names (no match).
+_NUMBER = re.compile(r"^(?:0x([0-9a-f]{1,8})|(\d{1,9}))$", re.IGNORECASE)
 
 
 def parse_number(text: str) -> int | None:

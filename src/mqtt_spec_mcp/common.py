@@ -12,7 +12,7 @@ OTHER_VERSION: dict[VersionId, VersionId] = {"3.1.1": "5.0", "5.0": "3.1.1"}
 # "MQTT 5", "MQTT5.0", "MQTT v3.1.1", "MQTT Version 5.0", "MQTT-5". A trailing
 # "-<digit>" means a requirement label (MQTT-3.1.2-4, MQTT-3-8.3-4), not a version.
 _VERSION_MENTION = re.compile(
-    r"\bmqtt(?:[\s_]*|\s*[-\u2010-\u2015]\s*)(?:version[\s_]*|v[\s_]*)?"
+    r"\bmqtt(?:[\s_]*|\s*[-\u2010-\u2015]\s*)(?:version[\s_:=.]*|v[\s_:=.]*)?"
     r"(\d+(?:\.\d+)*)(?![\d.]*\d)(?!\s*[-\u2010-\u2015]\s*\d)",
     re.IGNORECASE,
 )

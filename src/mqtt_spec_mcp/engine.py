@@ -11,7 +11,7 @@ from typing import Any
 from .common import QueryError, check_version_mentions, envelope
 from .schema import ListItem, Paragraph, Section, SpecIndex, Table
 from .search import SearchIndex
-from .textutil import SECTION_PREFIX, normalize
+from .textutil import SECTION_PREFIX, normalize, tokenize
 from .versions import PINS, Pin, VersionId, as_version
 
 SECTION_ID = re.compile(r"^\d+(?:\.\d+)*$")
@@ -38,6 +38,7 @@ class SectionInfo:
     order: int
     body: str
     title_norm: str
+    title_words: tuple[str, ...]
     children: tuple[str, ...]
 
     @property
@@ -64,6 +65,7 @@ class SpecEngine:
                 order=i,
                 body="\n".join(block_plain_text(b) for b in s.blocks),
                 title_norm=normalize(s.title),
+                title_words=tuple(tokenize(s.title)),
                 children=tuple(children[s.id]),
             )
             for i, s in enumerate(index.sections)
@@ -97,9 +99,23 @@ class SpecEngine:
 
     # Section resolution ----------------------------------------------------------
 
+    def _exact_reference(self, text: str) -> SectionInfo | None:
+        """A section of this version named exactly by "<id> <title>" or its title."""
+        words = tuple(tokenize(text))
+        match = SECTION_WITH_TITLE.match(text)
+        if match:
+            info = self.sections.get(match.group(1))
+            if info is not None and tuple(tokenize(match.group(2))) == info.title_words:
+                return info
+        named = [s for s in self.ordered if words and s.title_words == words]
+        return named[0] if len(named) == 1 else None
+
     def resolve_section(self, raw: str, field: str = "section") -> SectionInfo:
-        self.guard(field, raw)
         text = SECTION_PREFIX.sub("", " ".join(raw.split()).strip()).strip()
+        # Exact references to this version's own sections are not version mentions,
+        # even when the title itself names a version (5.0's "1.8.1 MQTT v3.1.1").
+        if self._exact_reference(text) is None:
+            self.guard(field, raw)
         v = self.version
         if not text:
             raise self.error(f"The {field} is empty. Pass a section id such as '3.1'.")
@@ -122,7 +138,7 @@ class SpecEngine:
                     f"No MQTT {v} section {section_id} exists (you asked for "
                     f"'{text}'). Use mqtt_spec_search with version='{v}' to find it."
                 )
-            if not _title_matches(normalize(given), info.title_norm):
+            if not _title_matches(tuple(tokenize(given)), info.title_words):
                 raise self.error(
                     f"Section {section_id} title does not match: you gave '{given}', "
                     f"but MQTT {v} section {section_id} is '{info.title}'. Section "
@@ -131,7 +147,10 @@ class SpecEngine:
                 )
             return info
         wanted = normalize(text)
-        exact = [s for s in self.ordered if s.title_norm == wanted]
+        words = tuple(tokenize(text))
+        # Titles compare by their words, so stray publication punctuation (such as
+        # the trailing backtick in 5.0's "Message Expiry Interval`") does not matter.
+        exact = [s for s in self.ordered if words and s.title_words == words]
         if len(exact) == 1:
             return exact[0]
         if len(exact) > 1:
@@ -140,7 +159,12 @@ class SpecEngine:
                 f"The title '{text}' matches several MQTT {v} sections ({ids}). "
                 "Pass one of these section ids instead."
             )
-        partial = [s for s in self.ordered if wanted in s.title_norm]
+        joined = " ".join(words)
+        partial = [
+            s
+            for s in self.ordered
+            if wanted in s.title_norm or (joined and joined in " ".join(s.title_words))
+        ]
         if len(partial) == 1:
             return partial[0]
         if len(partial) > 1:
@@ -182,8 +206,10 @@ class SpecEngine:
         return result
 
 
-def _title_matches(given: str, actual: str) -> bool:
-    given = given.strip(" .:-")
-    if given == actual:
-        return True
-    return actual.startswith(given + " ") or given.startswith(actual + " ")
+def _title_matches(given: tuple[str, ...], actual: tuple[str, ...]) -> bool:
+    """Same title, or one is a whole-word prefix of the other ("Clean" ~ "Clean
+    Session"); compared word by word, ignoring punctuation."""
+    if not given:
+        return False
+    shorter, longer = sorted((given, actual), key=len)
+    return longer[: len(shorter)] == shorter

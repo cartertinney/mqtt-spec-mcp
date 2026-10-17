@@ -340,7 +340,11 @@ class MqttSpecService:
         try:
             return ToolOutcome(handler(args), False)
         except ValidationError as exc:
-            return ToolOutcome(_validation_message(name, exc), True)
+            message = _validation_message(name, exc)
+            version = args.get("version")
+            if isinstance(version, str) and version in SUPPORTED_VERSIONS:
+                return ToolOutcome(str(QueryError(as_version(version), message)), True)
+            return ToolOutcome(message, True)
         except QueryError as exc:
             return ToolOutcome(str(exc), True)
         except Exception as exc:  # never leak an unscoped error to the client

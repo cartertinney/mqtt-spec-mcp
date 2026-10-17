@@ -62,8 +62,10 @@ def hex_code(value: int) -> str:
 
 
 def _title_key(text: str) -> tuple[str, ...]:
-    """Title comparison key that tolerates singular/plural spelling differences."""
-    return tuple(word.removesuffix("s") for word in normalize(text).split())
+    """Title comparison key that tolerates punctuation and singular/plural forms."""
+    return tuple(
+        word.removesuffix("s") for word in re.findall(r"[0-9a-z]+", normalize(text))
+    )
 
 
 def row_text(row: Iterable[str]) -> str:

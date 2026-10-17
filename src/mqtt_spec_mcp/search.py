@@ -42,6 +42,7 @@ FIRST_SNIPPET_CHARS = 1600
 OTHER_SNIPPET_CHARS = 320
 PARENT_SNIPPET_CHARS = 700
 MAX_QUERY_TERMS = 32
+CLUSTER_SPAN = 400
 MAX_SNIPPET_LABELS = 5
 
 STOPWORDS = frozenset(
@@ -159,6 +160,7 @@ class SearchIndex:
         for doc in docs:
             any_df.update(set(doc.title_tf) | set(doc.body_tf) | set(doc.path_tf))
         self.idf = {t: _idf(n, df) for t, df in any_df.items()}
+        self.max_idf = _idf(n, 0)
         self.avg_title = sum(d.title_len for d in docs) / n
         self.avg_body = sum(d.body_len for d in docs) / n
 
@@ -240,18 +242,33 @@ class SearchIndex:
     # Snippets ----------------------------------------------------------------------
 
     def anchor(self, text: str, query: str) -> int | None:
+        """Where a snippet should focus: the first whole-word phrase match, else
+        the start of the densest cluster of informative query terms."""
         haystack = match_form(text)
         phrase = phrase_form(query)
         if phrase:
-            pos = haystack.find(phrase)
-            if pos >= 0:
-                return pos
-        best: int | None = None
-        for term in query_terms(query):
-            found = re.search(rf"(?<![0-9a-z]){re.escape(term)}", haystack)
-            if found and (best is None or found.start() < best):
-                best = found.start()
-        return best
+            found = re.search(rf"(?<![0-9a-z]){re.escape(phrase)}", haystack)
+            if found:
+                return found.start()
+        hits = sorted(
+            (match.start(), term)
+            for term in query_terms(query)
+            for match in re.finditer(rf"(?<![0-9a-z]){re.escape(term)}", haystack)
+        )
+        if not hits:
+            return None
+        best_pos, best_score = hits[0][0], -1.0
+        counts: Counter[str] = Counter()
+        end = 0
+        for pos, term in hits:
+            while end < len(hits) and hits[end][0] - pos <= CLUSTER_SPAN:
+                counts[hits[end][1]] += 1
+                end += 1
+            score = sum(self.idf.get(t, self.max_idf) for t, n in counts.items() if n)
+            if score > best_score + 1e-9:
+                best_pos, best_score = pos, score
+            counts[term] -= 1
+        return best_pos
 
 
 HEX_TOKEN = re.compile(r"0x[0-9a-f]+")
@@ -336,11 +353,8 @@ def search(
         info = doc.info
         budget = FIRST_SNIPPET_CHARS if position == 0 else OTHER_SNIPPET_CHARS
         in_section = label is not None and label in info.section.requirements
-        if in_section and engine.version == "3.1.1" and label is not None:
-            excerpt = engine.requirements[label].excerpt
-            if engine.requirements[label].section != info.id:
-                excerpt = _block_with_label(info, label, engine) or excerpt
-            snippet = window(excerpt, _label_anchor(excerpt, label, engine), budget)
+        if in_section and label is not None:
+            snippet = _label_snippet(engine, info, label, budget)
         else:
             snippet = window(info.body, index.anchor(info.body, query), budget)
         entry: dict[str, Any] = {
@@ -392,6 +406,23 @@ def search(
         }
     )
     return result
+
+
+def _label_snippet(
+    engine: SpecEngine, info: SectionInfo, label: str, budget: int
+) -> str:
+    """Snippet for a requirement-label query in a section that lists the label."""
+    requirement = engine.requirements[label]
+    if engine.version != "3.1.1":
+        printed = _label_anchor(info.body, label, engine)
+        if printed is not None:
+            return window(info.body, printed, budget)
+    # 3.1.1 always quotes the indexed excerpt; 5.0 falls back to it for labels the
+    # body does not print recognizably (reconciled from Appendix B).
+    excerpt = requirement.excerpt
+    if requirement.section != info.id:
+        excerpt = _block_with_label(info, label, engine) or excerpt
+    return window(excerpt, _label_anchor(excerpt, label, engine), budget)
 
 
 def _label_anchor(text: str, label: str, engine: SpecEngine) -> int | None:

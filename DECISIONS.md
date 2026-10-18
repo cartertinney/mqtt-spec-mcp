@@ -11,9 +11,12 @@ states the decision and, briefly, why.
 - **Argument validation** uses strict Pydantic models with unknown arguments
   rejected (`extra="forbid"`), so an inapplicable argument is never silently
   ignored, and `5`, `true`, `"5"` etc. never coerce into a version.
-- Nullable parameters are declared as `{"type": ["string", "null"]}`. A null or
-  blank value for any *optional* argument means "not given" (agents often send
-  `"cursor": ""` or `"limit": null`); required arguments stay strict.
+- Nullable parameters are declared as `{"type": ["string", "null"]}`. Optional
+  arguments accept the spellings agents actually send: null, blank text, or the
+  words "null"/"none"/"undefined" mean "not given" (both the Copilot and Claude
+  harnesses sent `"limit": "null"` in testing); `"3"` or `3.0` is accepted for an
+  integer and `"true"`/`"false"` for a boolean. A bare number is accepted for the
+  free-text `query`/`section`. `version` and range limits stay strict.
 - Argument errors carry the `MQTT <version> only (...)` prefix whenever the
   `version` argument itself is valid. Any unexpected exception is caught and
   returned the same way as an internal-error tool result, so no unscoped error

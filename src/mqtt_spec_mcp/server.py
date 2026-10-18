@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
@@ -90,22 +91,65 @@ class _Args(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _omit_empty_optionals(cls, data: Any) -> Any:
-        """Treat null, and blank text, in an optional argument as "not given".
+    def _lenient_optionals(cls, data: Any) -> Any:
+        """Accept the common ways LLM clients spell optional arguments.
 
-        LLM clients often send ``"cursor": ""`` or ``"limit": null`` for arguments
-        they mean to leave out. Required arguments and unknown keys stay strict.
+        ``null``, blank text and the words "null"/"none"/"undefined" mean "not
+        given"; ``"3"`` is accepted for an integer and ``"true"``/``"false"`` for a
+        boolean. ``version``, the other required arguments and unknown keys stay
+        strict.
         """
         if not isinstance(data, dict):
             return data
         cleaned = {}
         for key, value in data.items():
             field = cls.model_fields.get(key)
-            empty = value is None or (isinstance(value, str) and not value.strip())
-            if field is not None and not field.is_required() and empty:
+            if field is None or field.is_required():
+                cleaned[key] = _as_text(field, value)
                 continue
-            cleaned[key] = value
+            if _means_omitted(value):
+                continue
+            cleaned[key] = _coerce_optional(field.annotation, value)
         return cleaned
+
+
+_OMITTED_WORDS = frozenset({"null", "none", "undefined"})
+_INTEGER_TEXT = re.compile(r"[+-]?\d{1,6}")
+
+
+def _means_omitted(value: Any) -> bool:
+    if value is None:
+        return True
+    return isinstance(value, str) and (
+        not value.strip() or value.strip().lower() in _OMITTED_WORDS
+    )
+
+
+def _coerce_optional(kind: Any, value: Any) -> Any:
+    if kind is int:
+        if isinstance(value, str) and _INTEGER_TEXT.fullmatch(value.strip()):
+            return int(value)
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+    if kind is bool and isinstance(value, str):
+        word = value.strip().lower()
+        if word in ("true", "false"):
+            return word == "true"
+    if kind == (str | None) and isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    return value
+
+
+def _as_text(field: Any, value: Any) -> Any:
+    """Required free-text arguments accept a bare number (``"query": 128``)."""
+    if (
+        field is not None
+        and field.annotation is str
+        and isinstance(value, int)
+        and not isinstance(value, bool)
+    ):
+        return str(value)
+    return value
 
 
 class OutlineArgs(_Args):

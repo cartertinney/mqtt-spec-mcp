@@ -419,3 +419,48 @@ def test_pages_split_at_sentences_and_pack_small_pages(call: Call) -> None:
         text = page.split("\n\n")[2:]
         last = next(p for p in reversed(text) if not p.startswith(("---", "Source")))
         assert last.rstrip().endswith((".", ";", ":", ")", "]")), last[-60:]
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("mqtt_spec_search", {"query": "keep alive", "chapter": None, "limit": "null"}),
+        (
+            "mqtt_spec_search",
+            {"query": "keep alive", "limit": "3", "normative_only": "true"},
+        ),
+        ("mqtt_spec_search", {"query": "keep alive", "limit": 3.0}),
+        (
+            "mqtt_spec_get",
+            {
+                "section": "3.1",
+                "max_chars": "1000",
+                "include_subsections": "false",
+                "cursor": "None",
+            },
+        ),
+        ("mqtt_spec_lookup", {"kind": "reason_code", "query": 128}),
+        ("mqtt_spec_lookup", {"kind": "packet", "query": "3", "packet": "undefined"}),
+    ],
+)
+def test_common_llm_argument_spellings(
+    call: Call, tool: str, args: dict[str, Any]
+) -> None:
+    outcome = call(tool, version="5.0", **args)
+    assert not outcome.is_error, outcome.text
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"version": 5.0},
+        {"version": "null"},
+        {"version": "5.0", "depth": "lots"},
+        {"version": "5.0", "depth": "9"},
+        {"version": "5.0", "depth": True},
+    ],
+)
+def test_lenience_does_not_reach_version_or_ranges(
+    err: Callable[..., str], args: dict[str, Any]
+) -> None:
+    assert "Invalid arguments" in err("mqtt_spec_outline", **args)

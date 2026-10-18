@@ -348,6 +348,7 @@ def test_snippet_finds_the_densest_match(ok: JsonCall) -> None:
         "mqtt_spec_search",
         version="5.0",
         query="PUBLISH Topic Alias greater than Topic Alias Maximum",
+        chapter="3.3.2.3.4",
     )
     first = result["results"][0]
     assert first["section"] == "3.3.2.3.4"
@@ -376,3 +377,45 @@ def test_exact_section_titles_naming_a_version_resolve(
     assert "selected version" in err(
         "mqtt_spec_outline", version="3.1.1", parent="MQTT v5.0"
     )
+
+
+def test_search_folds_word_forms(ok: JsonCall) -> None:
+    from mqtt_spec_mcp.textutil import stem
+
+    assert {stem(w) for w in ("close", "closes", "closed", "closing")} == {"close"}
+    assert stem("connection") == stem("connections") == "connection"
+    assert stem("connection") != stem("connect")
+    top = ok(
+        "mqtt_spec_search",
+        version="5.0",
+        query="what happens to the session when the network connection closes",
+    )
+    assert "3.1.2.11.2" in [r["section"] for r in top["results"]]
+
+
+def test_will_is_a_search_term(ok: JsonCall) -> None:
+    result = ok(
+        "mqtt_spec_search", version="5.0", query="when is the will message published"
+    )
+    assert result["results"][0]["title"].startswith("Will")
+
+
+def test_next_step_offers_listed_alternatives(ok: JsonCall) -> None:
+    step = ok("mqtt_spec_search", version="5.0", query="keep alive")["next_step"]
+    assert "another listed section" in step
+    assert "Do not search again for this question." in step
+
+
+def test_pages_split_at_sentences_and_pack_small_pages(call: Call) -> None:
+    from mqtt_spec_mcp.render import page_summary
+
+    args = {"version": "5.0", "section": "3.1.2.5", "max_chars": 1000}
+    first = call("mqtt_spec_get", **args).text
+    body = first.split("\n\n")[2:-1]
+    assert sum(len(part) for part in body) > 300
+    cursor = page_summary(first)["cursor"]
+    second = call("mqtt_spec_get", **args, cursor=cursor).text
+    for page in (first, second):
+        text = page.split("\n\n")[2:]
+        last = next(p for p in reversed(text) if not p.startswith(("---", "Source")))
+        assert last.rstrip().endswith((".", ";", ":", ")", "]")), last[-60:]

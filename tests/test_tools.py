@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -284,16 +285,28 @@ def _cursor_for(call: Call, version: str = "5.0") -> str:
     return cursor
 
 
-def _decode(cursor: str) -> dict[str, Any]:
-    data: dict[str, Any] = json.loads(
-        base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
-    )
-    return data
+CURSOR_KEYS = ("format", "version", "sha", "section", "include", "max_chars", "p")
+
+
+def _decode(cursor: str) -> dict[str, str]:
+    raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
+    return dict(zip(CURSOR_KEYS, raw.split(","), strict=True))
 
 
 def _encode(data: dict[str, Any]) -> str:
-    raw = json.dumps(data, separators=(",", ":")).encode()
+    raw = ",".join(str(value) for value in data.values()).encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def test_cursor_is_short_and_url_safe(call: Call) -> None:
+    cursor = _cursor_for(call)
+    assert len(cursor) <= 64
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", cursor)
+    data = _decode(cursor)
+    assert data["version"] == "5.0"
+    assert data["section"] == "3.1"
+    assert data["include"] == "1"
+    assert data["max_chars"] == "1000"
 
 
 def test_cursor_changed_arguments(call: Call, err: Callable[..., str]) -> None:
@@ -316,7 +329,7 @@ def test_cursor_changed_arguments(call: Call, err: Callable[..., str]) -> None:
 def test_cursor_wrong_version_or_hash(call: Call, err: Callable[..., str]) -> None:
     cursor = _cursor_for(call)
     data = _decode(cursor)
-    tampered = _encode({**data, "h": "0" * 64})
+    tampered = _encode({**data, "sha": "0" * 12})
     base = {
         "version": "5.0",
         "section": "3.1",
@@ -338,11 +351,17 @@ def test_cursor_invalid_forms(call: Call, err: Callable[..., str]) -> None:
         "include_subsections": True,
         "max_chars": 1000,
     }
-    legacy = {k: v for k, v in data.items() if k != "f"}
+    unversioned = {k: v for k, v in data.items() if k != "format"}
+    json_v1 = json.dumps(
+        {"f": 1, "v": "5.0", "h": "0" * 64, "s": "3.1", "i": True, "m": 1000, "p": 2}
+    )
     bad_cursors = [
-        _encode(legacy),
-        _encode({**data, "f": 0}),
-        _encode({**data, "p": "2"}),
+        _encode(unversioned),
+        _encode({**data, "format": 1}),
+        _encode({**data, "p": "two"}),
+        _encode({**data, "p": 0}),
+        _encode({**data, "include": "yes"}),
+        base64.urlsafe_b64encode(json_v1.encode()).decode().rstrip("="),
         "not a cursor!",
         "AAAA",
         _encode({**data, "extra": 1}),

@@ -16,6 +16,7 @@ from .textutil import (
     looks_like_label,
     normalize,
     search_tokens,
+    stem,
     tokenize,
 )
 
@@ -27,7 +28,8 @@ B_TITLE = 0.3
 B_BODY = 0.5
 TITLE_WEIGHT = 5.0
 PATH_WEIGHT = 1.0
-NORMATIVE_BONUS = 0.5
+ANCESTOR_TERM_BONUS = 0.5
+NORMATIVE_BONUS = 0.25
 NORMATIVE_BONUS_CAP = 4
 BOOST_SECTION_ID = 1000.0
 BOOST_LABEL_HOME = 600.0
@@ -45,21 +47,38 @@ MAX_QUERY_TERMS = 32
 CLUSTER_SPAN = 400
 MAX_SNIPPET_LABELS = 5
 
+# English function words plus question fillers ("what happens when ..."). "will" is
+# deliberately absent: Will Message, Will Flag and Will Delay are MQTT terms.
 STOPWORDS = frozenset(
-    [
+    {
         "a",
+        "about",
+        "also",
         "an",
         "and",
+        "any",
         "are",
         "as",
         "at",
         "be",
+        "been",
+        "being",
+        "but",
         "by",
         "can",
+        "could",
+        "describe",
+        "did",
         "do",
         "does",
+        "done",
+        "explain",
         "for",
         "from",
+        "had",
+        "happen",
+        "happened",
+        "happens",
         "has",
         "have",
         "how",
@@ -71,22 +90,33 @@ STOPWORDS = frozenset(
         "it",
         "its",
         "me",
+        "mean",
+        "means",
         "my",
+        "occur",
+        "occurred",
+        "occurs",
         "of",
         "on",
         "or",
+        "please",
         "should",
         "so",
+        "tell",
         "than",
         "that",
         "the",
         "their",
+        "them",
         "then",
         "there",
         "these",
+        "they",
         "this",
+        "those",
         "to",
         "was",
+        "we",
         "what",
         "when",
         "where",
@@ -94,12 +124,13 @@ STOPWORDS = frozenset(
         "while",
         "who",
         "why",
-        "will",
         "with",
+        "work",
+        "works",
         "would",
         "you",
         "your",
-    ]
+    }
 )
 _DASHES = str.maketrans(
     dict.fromkeys("\u2010\u2011\u2012\u2013\u2014\u2015\u2212", "-") | {"\n": " "}
@@ -127,7 +158,8 @@ class _Doc:
     body_len: int
     body_match: str
     title_joined: str
-    body_joined: str
+    title_content: str
+    body_content: str
 
 
 class SearchIndex:
@@ -151,7 +183,8 @@ class SearchIndex:
                 body_len=len(body_tokens),
                 body_match=match_form(info.body),
                 title_joined=" " + " ".join(title_tokens) + " ",
-                body_joined=" " + " ".join(body_tokens) + " ",
+                title_content=_joined(content_stems(info.title)),
+                body_content=_joined(content_stems(info.body)),
             )
             docs.append(doc)
         self.docs = tuple(docs)
@@ -199,7 +232,8 @@ class SearchIndex:
         # Identifier queries are matched exactly; their digits are noise for BM25.
         identifier = label is not None or SECTION_ID.fullmatch(q_id) is not None
         terms = [] if identifier else query_terms(query)
-        pairs = [f" {a} {b} " for a, b in pairwise(terms)]
+        sequence = [] if identifier else content_stems(query)
+        pairs = list(dict.fromkeys(f" {a} {b} " for a, b in pairwise(sequence)))
         hex_terms = [t for t in terms if HEX_TOKEN.fullmatch(t)]
         stems = search_tokens(query)
         q_stems = " " + " ".join(stems) + " " if stems and not identifier else ""
@@ -211,6 +245,13 @@ class SearchIndex:
             if normative_only and not info.section.requirements:
                 continue
             score = self._bm25f(doc, terms)
+            # Own titles are weighted inside BM25F; terms named only by ancestor
+            # headings get extra, unsaturated credit ("3.9.3 Payload" is under SUBACK).
+            score += ANCESTOR_TERM_BONUS * sum(
+                self.idf.get(t, 0.0)
+                for t in terms
+                if t in doc.path_tf and t not in doc.title_tf
+            )
             if score > 0:
                 normative = min(len(info.section.requirements), NORMATIVE_BONUS_CAP)
                 score += NORMATIVE_BONUS * normative
@@ -230,9 +271,9 @@ class SearchIndex:
                 if term in doc.body_tf or term in doc.title_tf:
                     score += BOOST_HEX_IDENTIFIER
             for pair in pairs:
-                if pair in doc.title_joined:
+                if pair in doc.title_content:
                     score += BOOST_TITLE_PAIR
-                if pair in doc.body_joined:
+                if pair in doc.body_content:
                     score += BOOST_BODY_PAIR
             if score > 0:
                 scored.append((score, doc))
@@ -253,7 +294,9 @@ class SearchIndex:
         hits = sorted(
             (match.start(), term)
             for term in query_terms(query)
-            for match in re.finditer(rf"(?<![0-9a-z]){re.escape(term)}", haystack)
+            for match in re.finditer(
+                rf"(?<![0-9a-z]){re.escape(_prefix_form(term))}", haystack
+            )
         )
         if not hits:
             return None
@@ -279,11 +322,25 @@ def _idf(n: int, df: int) -> float:
     return math.log(1 + (n - df + 0.5) / (df + 0.5))
 
 
+def content_stems(text: str) -> list[str]:
+    """Stems of the non-stopword tokens, in order (all tokens if every one is a
+    stopword)."""
+    tokens = tokenize(text)
+    content = [t for t in tokens if t not in STOPWORDS] or tokens
+    return [stem(t) for t in content]
+
+
 def query_terms(query: str) -> list[str]:
-    tokens = search_tokens(query)
-    content = [t for t in tokens if t not in STOPWORDS]
-    chosen = content or tokens
-    return list(dict.fromkeys(chosen))[:MAX_QUERY_TERMS]
+    return list(dict.fromkeys(content_stems(query)))[:MAX_QUERY_TERMS]
+
+
+def _joined(stems: list[str]) -> str:
+    return " " + " ".join(stems) + " "
+
+
+def _prefix_form(term: str) -> str:
+    """Stem form that is a prefix of its surface words ("expiri" -> "expir")."""
+    return term[:-1] if len(term) > 4 and term[-1] in "ie" else term
 
 
 def window(text: str, anchor: int | None, budget: int) -> str:
@@ -385,7 +442,8 @@ def search(
         next_step = (
             "Answer from the first snippet if it contains the facts you need. "
             f"Otherwise call mqtt_spec_get once with version='{v}' and "
-            f"section='{best}'. Do not search again for this question."
+            f"section='{best}', or with another listed section whose snippet fits "
+            "the question better. Do not search again for this question."
         )
     else:
         next_step = (

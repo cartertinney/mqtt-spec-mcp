@@ -11,7 +11,13 @@ states the decision and, briefly, why.
 - **Argument validation** uses strict Pydantic models with unknown arguments
   rejected (`extra="forbid"`), so an inapplicable argument is never silently
   ignored, and `5`, `true`, `"5"` etc. never coerce into a version.
-- Nullable parameters are declared as `{"type": ["string", "null"]}`.
+- Nullable parameters are declared as `{"type": ["string", "null"]}`. A null or
+  blank value for any *optional* argument means "not given" (agents often send
+  `"cursor": ""` or `"limit": null`); required arguments stay strict.
+- Argument errors carry the `MQTT <version> only (...)` prefix whenever the
+  `version` argument itself is valid. Any unexpected exception is caught and
+  returned the same way as an internal-error tool result, so no unscoped error
+  reaches the client.
 - The server works with both the legacy `initialize` handshake and the
   2026-07-28 per-request protocol era; the SDK negotiates this.
 - `MqttSpecService` is the transport-independent dispatcher. The test hook is
@@ -86,52 +92,90 @@ appear in the body.
 - BM25F over three fields: title (weight 5, b=0.3), ancestor titles ("path",
   weight 1, tf capped at 1) and body (b=0.5), k1=1.6, one saturation per term.
   This rewards covering several query terms over repeating one title word.
-- Tokens are lowercase alphanumeric runs after NFKC/dash normalization, with a
-  light plural fold (`subscriptions` → `subscription`). A small English stopword
-  list is dropped from queries unless the query is only stopwords.
-- Boosts: section id = 1000; requirement label in its home section = 600, in
-  another section that lists it = 400; title equal = 300; title contains the
-  query = 100; body contains the whole phrase = 10; each adjacent query-term pair
-  in the title = 6, in the body = 2; +0.5 per normative label (max 4).
+- Tokens are lowercase alphanumeric runs after NFKC/dash normalization, stemmed
+  with the Porter (1980) algorithm (`src/mqtt_spec_mcp/stemmer.py`, checked against
+  the paper's published examples), so "closes"/"closed"/"closing" match.
+  Exceptions keep MQTT concepts apart: "connection(s)" is not reduced to
+  "connect", which would match every CONNECT packet section title.
+- Stopwords are removed before stemming: English function words plus question
+  fillers ("happen", "explain", "mean", ...). "will" is not a stopword because
+  Will Message, Will Flag and Will Delay are MQTT terms.
+- Boosts: section id = 1000 (also "Section 3.1", "§3.1", "3.1."); requirement
+  label in its home section = 600, in another section that lists it = 400; title
+  equal = 300; title contains the query = 100; body contains the whole phrase =
+  10; each adjacent pair of query terms (ignoring stopwords between them) in the
+  title = 6, in the body = 2; a 0x hex identifier present = 8; +0.25 per
+  normative label (max 4 labels); query terms named only by ancestor headings get
+  0.5 × idf each, unsaturated ("3.9.3 Payload" sits under "SUBACK"). The own
+  title is already weighted inside BM25F; a separate own-title bonus was tried
+  and rejected because it ranked single-property sections above 4.10.1 for
+  multi-concept request/response questions.
   Requirement-label and section-id queries skip BM25 (their digits are noise).
+- These settings were chosen by measuring the 120-case retrieval benchmark, a
+  separate set of 45 practitioner queries, and title self-retrieval together,
+  taking values from the flat middle of the range rather than the single best.
 - Snippets: 1,600 characters for the first result, 320 for others, 700 for
-  `parent_context`; all limits include the `...` markers. The window starts at
-  the beginning of the block containing the match when that is close, otherwise
-  shortly before the match, and is cut at word boundaries.
-- For 3.1.1 label queries the snippet is a window on the requirement's indexed
-  excerpt (as required); 5.0 label queries use the normal phrase window, which
-  locates the printed label directly.
+  `parent_context`; all limits include the `...` markers. The window centers on
+  the first whole-word phrase match, else on the densest cluster of informative
+  query terms, and is cut at word boundaries.
+- Requirement-label queries always show the requirement: 3.1.1 quotes the indexed
+  excerpt (as required); 5.0 windows the printed label, falling back to the
+  excerpt for the two labels reconciled from Appendix B.
+- `next_step` names `best_section`, allows another listed section whose snippet
+  fits better, and keeps the required "Do not search again for this question."
 
 ## Section resolution
 
-- `"<id> <title>"` accepts the title when it equals the section's normalized
-  title, or either is a word-boundary prefix of the other (`3.1 CONNECT`
-  resolves to `3.1 CONNECT – Connection Request`); anything else fails with
-  `title does not match`.
-- Conflicting-version guard: `MQTT 5`, `MQTT 5.0`, `MQTT5.0`, `MQTT v5.0`,
-  `MQTT Version 5.0` mean 5.0; `MQTT 3.1.1` means 3.1.1; `MQTT 3.1` (unsupported)
-  is rejected for both; a bare `MQTT 3` is treated as 3.x (allowed for 3.1.1).
-  Requirement labels (`MQTT-3.1.2-4`) never trigger the guard.
+- Accepted reference forms: `3.1.2.4`, `3.1.2.4.`, `Section 3.1.2.4`, `§3.1.2.4`,
+  `Chapter 4`, and `"<id> <title>"` with a space, `-`, `–` or `:` between them.
+- `"<id> <title>"` accepts the title when its words equal the section title's
+  words, or either is a whole-word prefix of the other (`3.1 CONNECT` resolves to
+  `3.1 CONNECT – Connection Request`); anything else fails with `title does not
+  match`. Titles compare word by word, ignoring punctuation, so 5.0's heading
+  "Message Expiry Interval\`" (a stray backtick in the publication) resolves.
+- Conflicting-version guard: `MQTT 5`, `MQTT 5.0`, `MQTT5.0`, `MQTT-5`, `MQTT v5.0`,
+  `MQTT version: 5.0`, `MQTT Version 5.0` mean 5.0; `MQTT 3.1.1` means 3.1.1;
+  `MQTT 3.1` (unsupported) is rejected for both; a bare `MQTT 3` is treated as 3.x
+  (allowed for 3.1.1; the error for 5.0 suggests version='3.1.1'). Requirement
+  labels (`MQTT-3.1.2-4`, `MQTT-3-8.3-4`) never trigger the guard, and neither does
+  an exact reference to a section of the selected version whose title names a
+  version (5.0's `1.8.1 MQTT v3.1.1`).
 
 ## Get and cursors
 
-- Fragments are at most 600 characters (less when `max_chars` leaves less room).
-  Room is reserved for the "(continued)" header, banner and a footer containing
-  the longest possible cursor (position 10^7), so every page fits.
+- Fragments are at most 600 characters and at most half of the page's content
+  room. Pages hold whole fragments, so a long fragment after a short one would
+  otherwise leave most of a small page empty. Room is reserved for the
+  "(continued)" header, banner and a footer containing the longest possible
+  cursor (position 10^7), so every page fits.
+- Long paragraphs split at the last sentence end (`.`, `;`, `:`, `?`, `!`, `)`
+  followed by a space) that leaves the piece at least half full, else at the last
+  word boundary.
 - Subsection headings use `#` × (1 + level difference), capped at 6.
-- A section without its own blocks renders a placeholder that points to
-  `include_subsections` or `mqtt_spec_outline`.
-- Cursor = URL-safe base64 (no padding) of compact JSON
-  `{"f":1,"h":<full source sha256>,"i":<bool>,"m":<max_chars>,"p":<position>,
-  "s":<section>,"v":<version>}`. Unsigned: cursors carry no secrets and the server
-  validates every field.
+- A section without its own blocks renders a placeholder: "its subsections
+  follow" when they are included, otherwise a pointer to `include_subsections`
+  or `mqtt_spec_outline`.
+- Cursor (format 2) = URL-safe base64 (no padding) of
+  `2,<version>,<first 12 hex of the source SHA-256>,<section>,<0|1>,<max_chars>,<position>`,
+  about 50 characters. The 12-hex prefix distinguishes pinned publications while
+  keeping cursors short enough for agents to copy exactly. Unsigned: cursors carry
+  no secrets and the server validates every field. Cursors over 128 characters or
+  in any other format are rejected as invalid.
 
 ## Lookup
 
 - Return-code and packet `code` fields are hex strings (`0x00`).
 - A single property result always has `details`; it is empty without a packet
   filter.
-- `return_code` accepts `packet=CONNACK`/`SUBACK` only (case-insensitive name).
+- `return_code` requires the packet filter to resolve to CONNACK or SUBACK (by
+  name, number, or "connack packet").
+- A `reason_code` query that is a packet name ("CONNECT") is answered with an error
+  pointing to `kind=packet`, instead of substring-matching reason code names such
+  as "Normal disconnection".
+- Requirement labels match with or without brackets, the `MQTT-` prefix, or
+  trailing punctuation (`3.1.2-4`, `[MQTT-3.1.2-4].`).
+- Numeric queries are limited to 9 decimal / 8 hex digits; longer digit strings
+  are ordinary misses.
 
 ## Benchmark
 

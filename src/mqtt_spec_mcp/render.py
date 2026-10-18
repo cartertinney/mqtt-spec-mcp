@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import json
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -14,14 +13,26 @@ from .schema import ListItem, Paragraph, Table
 if TYPE_CHECKING:
     from .engine import SectionInfo, SpecEngine
 
-CURSOR_FORMAT = 1
-# Real cursors are about 200 characters; anything far longer is not one of ours.
-MAX_CURSOR_CHARS = 512
+CURSOR_FORMAT = 2
+# Cursors carry a prefix of the pinned source SHA-256: enough to tell publications
+# apart while keeping cursors short (about 50 characters) and easy to copy exactly.
+CURSOR_SHA_CHARS = 12
+MAX_CURSOR_CHARS = 128
 MAX_FRAGMENT_CHARS = 600
 MIN_FRAGMENT_CHARS = 40
 MAX_HEADING_DEPTH = 6
 SEPARATOR = "\n\n"
 _LONGEST_POSITION = 10**7
+_CURSOR_TEXT = re.compile(r"[A-Za-z0-9_\-]+")
+_CURSOR_FIELDS = re.compile(
+    r"(?P<format>\d{1,3}),(?P<version>[0-9.]{1,10}),(?P<sha>[0-9a-f]{12}),"
+    r"(?P<section>\d+(?:\.\d+)*),(?P<include>[01]),(?P<max_chars>\d{1,6}),"
+    r"(?P<position>\d{1,9})"
+)
+
+
+def sha_prefix(sha256: str) -> str:
+    return sha256[:CURSOR_SHA_CHARS]
 
 
 @dataclass(frozen=True)
@@ -34,28 +45,17 @@ class CursorState:
     position: int
 
     def encode(self) -> str:
-        payload = {
-            "f": CURSOR_FORMAT,
-            "v": self.version,
-            "h": self.sha,
-            "s": self.section,
-            "i": self.include_subsections,
-            "m": self.max_chars,
-            "p": self.position,
-        }
-        raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
-        return base64.urlsafe_b64encode(raw).decode().rstrip("=")
-
-
-_CURSOR_SCHEMA: dict[str, type] = {
-    "f": int,
-    "v": str,
-    "h": str,
-    "s": str,
-    "i": bool,
-    "m": int,
-    "p": int,
-}
+        fields = (
+            CURSOR_FORMAT,
+            self.version,
+            sha_prefix(self.sha),
+            self.section,
+            int(self.include_subsections),
+            self.max_chars,
+            self.position,
+        )
+        raw = ",".join(str(field) for field in fields).encode("ascii")
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
 def decode_cursor(engine: SpecEngine, cursor: str) -> CursorState:
@@ -64,42 +64,49 @@ def decode_cursor(engine: SpecEngine, cursor: str) -> CursorState:
         "format). Call mqtt_spec_get again without a cursor to restart retrieval."
     )
     text = cursor.strip()
-    if (
-        not text
-        or len(text) > MAX_CURSOR_CHARS
-        or not re.fullmatch(r"[A-Za-z0-9_\-]+", text)
-    ):
+    if not text or len(text) > MAX_CURSOR_CHARS or not _CURSOR_TEXT.fullmatch(text):
         raise invalid
     try:
-        raw = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
-        data = json.loads(raw.decode("utf-8"))
-    except (binascii.Error, ValueError, UnicodeDecodeError, RecursionError):
+        raw = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)).decode("ascii")
+    except (binascii.Error, ValueError, UnicodeDecodeError):
         raise invalid from None
-    if not isinstance(data, dict) or set(data) != set(_CURSOR_SCHEMA):
+    fields = _CURSOR_FIELDS.fullmatch(raw)
+    if fields is None or int(fields["format"]) != CURSOR_FORMAT:
         raise invalid
-    for key, kind in _CURSOR_SCHEMA.items():
-        value = data[key]
-        if type(value) is not kind:
-            raise invalid
-    if data["f"] != CURSOR_FORMAT or data["p"] < 1:
+    position = int(fields["position"])
+    if position < 1:
         raise invalid
     return CursorState(
-        version=data["v"],
-        sha=data["h"],
-        section=data["s"],
-        include_subsections=data["i"],
-        max_chars=data["m"],
-        position=data["p"],
+        version=fields["version"],
+        sha=fields["sha"],
+        section=fields["section"],
+        include_subsections=fields["include"] == "1",
+        max_chars=int(fields["max_chars"]),
+        position=position,
     )
 
 
 # Fragments -----------------------------------------------------------------------
 
 
+_SENTENCE_END = re.compile(r"[.;:?!)](?= )")
+
+
+def _sentence_cut(text: str, room: int) -> int:
+    """Position just after the last sentence end that leaves the piece at least
+    half full, or 0 when there is none."""
+    best = 0
+    for match in _SENTENCE_END.finditer(text, 0, room):
+        if match.end() >= room // 2:
+            best = match.end()
+    return best
+
+
 def _split_words(
     text: str, limit: int, first_prefix: str = "", rest_prefix: str = ""
 ) -> list[str]:
-    """Split text at word boundaries into pieces no longer than ``limit``."""
+    """Split text into pieces no longer than ``limit``, preferring sentence ends
+    and otherwise cutting at a word boundary."""
     pieces: list[str] = []
     prefix = first_prefix
     remaining = text
@@ -108,7 +115,9 @@ def _split_words(
         if len(remaining) <= room:
             pieces.append(prefix + remaining)
             break
-        cut = remaining.rfind(" ", 0, room + 1)
+        cut = _sentence_cut(remaining, room)
+        if cut <= 0:
+            cut = remaining.rfind(" ", 0, room + 1)
         if cut <= 0:
             cut = room
         pieces.append(prefix + remaining[:cut].rstrip())
@@ -267,7 +276,10 @@ def fragment_limit(
     overhead = len(
         _page(_header(info, True), _banner(engine), [], _footer(engine, info, longest))
     )
-    limit = min(MAX_FRAGMENT_CHARS, max_chars - overhead - len(SEPARATOR))
+    room = max_chars - overhead - len(SEPARATOR)
+    # Pages hold whole fragments, so fragments are at most half a page: a long
+    # fragment after a short one would otherwise leave most of a page empty.
+    limit = min(MAX_FRAGMENT_CHARS, room // 2)
     if limit < MIN_FRAGMENT_CHARS:
         raise engine.error(
             f"max_chars={max_chars} is too small to render section {info.id} with its "
@@ -286,7 +298,9 @@ def get_section(
     info = engine.resolve_section(section, "section")
     state = decode_cursor(engine, cursor) if cursor is not None else None
     if state is not None:
-        if state.version != engine.version or state.sha != engine.pin.source_sha256:
+        if state.version != engine.version or state.sha != sha_prefix(
+            engine.pin.source_sha256
+        ):
             raise engine.error(
                 "This cursor belongs to a different MQTT version or pinned "
                 "publication. Cursors cannot be reused across versions; restart "

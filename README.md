@@ -72,6 +72,10 @@ VS Code (`.vscode/mcp.json`):
 }
 ```
 
+This repository also contains both files pre-filled for working in the checkout
+itself: `.vscode/mcp.json` (VS Code, including agent-host sessions) and `.mcp.json`
+(Claude Code and other clients that read project-scoped servers).
+
 After upgrading, restart the server and start a new conversation so the client
 drops any cached tool schemas.
 
@@ -263,9 +267,9 @@ uv run mqtt-spec-bench-report benchmarks/runs/copilot.jsonl \
 uv run mqtt-spec-bench-report --inspect-log logs/<file>.eval --rescore
 ```
 
-Current retrieval baseline on the 120 cases: Recall@1 0.75, Recall@3 0.55, Recall@5
-0.64, hit rate 0.93, MRR 0.82, lookup success 1.00, p95 latency under 5 ms. The CI
-gate thresholds sit just below this baseline. Recall@k divides by
+Current retrieval baseline on the 120 cases: Recall@1 0.78, Recall@3 0.59, Recall@5
+0.65, hit rate 0.96, MRR 0.86, lookup success 1.00, p95 latency about 5 ms. The CI
+gate thresholds sit below this baseline. Recall@k divides by
 min(|relevant|, k), and cases list about three relevant sections on average, often in
 different chapters, so Recall@3 and Recall@5 are stricter than the hit rate.
 

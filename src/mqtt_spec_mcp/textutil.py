@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from .stemmer import porter_stem
+
 _DASHES = dict.fromkeys(
     map(ord, "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d"), "-"
 )
@@ -42,17 +44,14 @@ def tokenize(text: str) -> list[str]:
     return _TOKEN.findall(normalize(text))
 
 
+# Words whose Porter stem would merge distinct MQTT concepts: "connection" would
+# become "connect" and match every CONNECT packet section title.
+STEM_EXCEPTIONS = {"connection": "connection", "connections": "connection"}
+
+
 def stem(token: str) -> str:
-    """Very light plural folding so 'Subscriptions' matches 'Subscription'."""
-    if len(token) > 4 and token.endswith("ies"):
-        return token[:-3] + "y"
-    if (
-        len(token) > 3
-        and token.endswith("s")
-        and not token.endswith(("ss", "us", "is"))
-    ):
-        return token[:-1]
-    return token
+    """Search stem: "closes", "closed" and "closing" all become "close"."""
+    return STEM_EXCEPTIONS.get(token) or porter_stem(token)
 
 
 def search_tokens(text: str) -> list[str]:

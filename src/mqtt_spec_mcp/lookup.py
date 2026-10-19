@@ -158,15 +158,18 @@ class Lookup:
                 f"The packet filter does not apply to kind={kind}. Omit packet and "
                 "call again."
             )
-        if kind == "return_code" and (
-            packet is None
-            or (found := self.find_packet(packet)) is None
-            or found.name not in RETURN_CODE_PACKETS
+        if (
+            kind == "return_code"
+            and packet is not None
+            and (
+                (found := self.find_packet(packet)) is None
+                or found.name not in RETURN_CODE_PACKETS
+            )
         ):
-            given = "no packet" if packet is None else f"packet='{packet}'"
             raise self.error(
-                "kind=return_code requires packet=CONNACK or packet=SUBACK (got "
-                f"{given}). MQTT 3.1.1 only defines return codes for those two packets."
+                "kind=return_code takes packet=CONNACK, packet=SUBACK or no packet "
+                f"filter (got packet='{packet}'). MQTT 3.1.1 only defines return codes "
+                "for those two packets."
             )
         packet_filter = self.resolve_packet_filter(kind, packet) if packet else None
         handler = getattr(self, f"_{kind}")
@@ -360,34 +363,47 @@ class Lookup:
         }
 
     def _return_code(self, query: str, packet: str | None) -> dict[str, Any]:
-        assert packet is not None
-        candidates = [c for c in self.engine.index.return_codes if packet in c.packets]
+        """Codes by value or name; a CONNACK or SUBACK query lists that packet's
+        codes. Without a packet filter, matches from both packets are returned, each
+        naming its packet (their values overlap)."""
         number = parse_number(query)
-        if number is not None:
+        named = self.find_packet(query) if number is None else None
+        if named is not None:
+            if named.name not in RETURN_CODE_PACKETS or packet not in (
+                None,
+                named.name,
+            ):
+                raise self.error(
+                    f"'{query}' is a packet name. MQTT 3.1.1 only defines return codes "
+                    "for CONNACK and SUBACK; pass query='CONNACK' or query='SUBACK' to "
+                    "list them, or a return code value or name."
+                )
+            packet = named.name
+        candidates = [
+            c
+            for c in self.engine.index.return_codes
+            if packet is None or packet in c.packets
+        ]
+        if named is not None:
+            codes = candidates
+        elif number is not None:
             codes = [c for c in candidates if c.value == number]
         else:
-            wanted = normalize(query)
-            codes = [c for c in candidates if normalize(c.name) == wanted]
+            codes = self._match_named(candidates, query, "value")
         if not codes:
-            valid = ", ".join(f"{c.hex} {c.name}" for c in candidates)
+            valid = ", ".join(
+                f"{c.hex} {c.name}" + ("" if packet else f" ({c.packets[0]})")
+                for c in candidates
+            )
+            scope = f"for {packet}" if packet else "for CONNACK or SUBACK"
             raise self.error(
-                f"No MQTT 3.1.1 return code matches '{query}' for {packet}. Valid "
-                f"{packet} return codes are: {valid}. Do not substitute MQTT 5.0 "
-                "reason code meanings; they differ."
+                f"No MQTT 3.1.1 return code matches '{query}' {scope}. Valid return "
+                f"codes are: {valid}. Do not substitute MQTT 5.0 reason code "
+                "meanings; they differ."
             )
-        result_codes = [
-            Code(
-                value=c.value,
-                hex=c.hex,
-                name=c.name,
-                packets=(packet,),
-                section=c.section,
-            )
-            for c in codes
-        ]
         return {
             "kind": "return_code",
-            "matches": _codes_out(result_codes, self._code_meanings(codes, packet)),
+            "matches": _codes_out(codes, [self._meanings(c, c.packets) for c in codes]),
         }
 
     def _requirement(self, query: str, _: str | None) -> dict[str, Any]:

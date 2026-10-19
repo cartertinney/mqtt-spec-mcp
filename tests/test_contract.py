@@ -297,14 +297,39 @@ def test_311_specific_misses(err: Callable[..., str], ok: JsonCall) -> None:
     )
 
 
-@pytest.mark.parametrize("packet", [None, "CONNECT", "UNSUBACK"])
-def test_311_return_code_requires_packet(
-    err: Callable[..., str], packet: str | None
+@pytest.mark.parametrize("packet", ["CONNECT", "UNSUBACK"])
+def test_311_return_code_packet_filter_must_be_connack_or_suback(
+    err: Callable[..., str], packet: str
 ) -> None:
-    args: dict[str, Any] = {"version": "3.1.1", "kind": "return_code", "query": "0"}
-    if packet is not None:
-        args["packet"] = packet
-    assert "requires packet=" in err("mqtt_spec_lookup", **args)
+    args = {"version": "3.1.1", "kind": "return_code", "query": "0", "packet": packet}
+    assert "packet=CONNACK, packet=SUBACK or no packet" in err(
+        "mqtt_spec_lookup", **args
+    )
+
+
+def test_311_return_code_without_filter_names_each_packet(ok: JsonCall) -> None:
+    result = ok("mqtt_spec_lookup", version="3.1.1", kind="return_code", query="2")
+    assert [(m["packets"], m["name"]) for m in result["matches"]] == [
+        (["CONNACK"], "Connection Refused, identifier rejected"),
+        (["SUBACK"], "Success - Maximum QoS 2"),
+    ]
+
+
+def test_311_return_code_query_naming_a_packet_lists_its_codes(
+    ok: JsonCall, err: Callable[..., str]
+) -> None:
+    for packet in (None, "CONNACK"):
+        args = {"version": "3.1.1", "kind": "return_code", "query": "CONNACK"}
+        result = ok(
+            "mqtt_spec_lookup", **args, **({"packet": packet} if packet else {})
+        )
+        assert [m["value"] for m in result["matches"]] == [0, 1, 2, 3, 4, 5]
+        assert all(m["meanings"] for m in result["matches"])
+    suback = ok("mqtt_spec_lookup", version="3.1.1", kind="return_code", query="suback")
+    assert [m["hex"] for m in suback["matches"]] == ["0x00", "0x01", "0x02", "0x80"]
+    for args in ({"query": "SUBACK", "packet": "CONNACK"}, {"query": "PUBACK"}):
+        message = err("mqtt_spec_lookup", version="3.1.1", kind="return_code", **args)
+        assert "is a packet name" in message
 
 
 def test_311_return_code_zero_is_scoped_to_filter(

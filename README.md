@@ -190,7 +190,7 @@ and Clean Start in 5.0.
 | `packet` | 14 packets | 15 packets (adds AUTH) | name or value |
 | `property` | not available | 27 properties | id (`0x11`/`17`), name or name fragment |
 | `reason_code` | not available | 45 entries | value or name; `packet` filters |
-| `return_code` | CONNACK 0–5, SUBACK 0/1/2/0x80 | not available | value or name; `packet` CONNACK or SUBACK is required |
+| `return_code` | CONNACK 0–5, SUBACK 0/1/2/0x80 | not available | value or name (each match names its packet); `CONNACK` or `SUBACK` lists that packet's codes; `packet` CONNACK or SUBACK filters |
 | `requirement` | 141 labels | 252 labels | label, e.g. `MQTT-3.1.2-4` |
 | `term` | 9 glossary terms | 15 glossary terms | name or name fragment |
 
@@ -210,8 +210,9 @@ Results carry the spec text needed to answer about the entity without a `get`:
   `remaining_length` when the fixed header fixes it (PINGREQ: 0).
 - A property has excerpts of the sections that define it: for `packet`'s section
   when given, otherwise for each defining section when there are at most three.
-- Reason and return codes (at most three matches) list their `meanings`: the row of
-  each packet's own code table, with the sender where the table names one.
+- Reason codes (at most three matches) and return codes list their `meanings`: the
+  row of each packet's own code table, with the sender where the table names one
+  (3.1.1 SUBACK has no such table).
 
 ## Version-safety guidance for agents
 

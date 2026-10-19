@@ -213,17 +213,21 @@ appear in the body.
   characters), the prose of its fixed header section as `fixed_header` (400;
   DISCONNECT's reserved-bits rule with 0x81) and `remaining_length` where the fixed
   header figure fixes it; a property's `details` (excerpts of 700 characters with
-  their requirement labels); and for at most three reason or return codes, the row
-  of each packet's own code table as `meanings` (with `sent_by` where the table has
-  that column). In the evidence-pack benchmark runs that used only lookups, the
-  results held 0.76 of the answer-key facts; with this text they hold 0.88, for
-  about 460 more characters per lookup.
+  their requirement labels); and for at most three reason codes, and for return
+  codes, the row of each packet's own code table as `meanings` (with `sent_by`
+  where the table has that column). In the evidence-pack benchmark runs that used
+  only lookups, the results held 0.76 of the answer-key facts; with this text they
+  hold 0.88, for about 460 more characters per lookup.
 - A single property result always has `details`: with a packet filter, the
   sections in that packet's subtree; without one, every defining section except
   the 2.2.2.2 table when there are at most three, else none (User Property and
   Reason String are defined in 15 and 10 sections).
-- `return_code` requires the packet filter to resolve to CONNACK or SUBACK (by
-  name, number, or "connack packet").
+- `return_code` takes an optional packet filter, which must resolve to CONNACK or
+  SUBACK (by name, number, or "connack packet"). Without it, a value or name returns
+  the matches of both packets, each naming its packet (0x00 to 0x02 exist in both),
+  and a query naming CONNACK or SUBACK lists that packet's codes. In the
+  evidence-pack runs 19 of the 25 MCP tool errors were 3.1.1 return-code lookups
+  without a packet filter or with the packet as the query, each costing a call.
 - A `reason_code` query that is a packet name ("CONNECT") is answered with an error
   pointing to `kind=packet`, instead of substring-matching reason code names such
   as "Normal disconnection".

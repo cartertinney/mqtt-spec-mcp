@@ -74,7 +74,9 @@ VS Code (`.vscode/mcp.json`):
 
 This repository also contains both files pre-filled for working in the checkout
 itself: `.vscode/mcp.json` (VS Code, including agent-host sessions) and `.mcp.json`
-(Claude Code and other clients that read project-scoped servers).
+(Claude Code and other clients that read project-scoped servers). For Claude Code,
+`.claude/settings.json` allows the four read-only tools to run without a permission
+prompt.
 
 After upgrading, restart the server and start a new conversation so the client
 drops any cached tool schemas.

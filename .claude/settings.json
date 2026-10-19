@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__mqtt-spec__mqtt_spec_outline",
+      "mcp__mqtt-spec__mqtt_spec_search",
+      "mcp__mqtt-spec__mqtt_spec_get",
+      "mcp__mqtt-spec__mqtt_spec_lookup"
+    ]
+  }
+}

@@ -298,7 +298,7 @@ TOOLS: tuple[types.Tool, ...] = (
                 },
                 "packet": {
                     **NULLABLE_STRING,
-                    "description": "Packet filter for property, reason_code, return_code.",
+                    "description": "Packet filter (property, reason or return code).",
                 },
             },
             ["kind", "query"],

@@ -120,3 +120,13 @@ through text about the other version, and one with a wrong reason code); every
 remaining failure was checked as a real error or omission. As a check on leniency,
 each case was scored against 5 reference answers of other cases of the same
 version: 3 of 1,000 passed, all on near-duplicate topics.
+
+A second pass checked the keys against the answers from the first two
+evidence-pack runs (1,000 new distinct answers, again without their conditions),
+with the same rules. It changed 88 cases; across all 3,692 distinct stored answers
+194 failing answers became passes and 3 passes became failures (a SHOULD where the spec says MUST, a maximum packet size of
+268,435,457 bytes instead of 268,435,460, and an answer credited only through a
+negated phrase). Three facts the prompts do not ask for were dropped (a refusal
+path, re-authentication, and a 3.1.1 rule the prompt states as given); two wrong
+claims seen in answers became forbidden claims; 10 facts that credited prompt
+echoes or text about the other version were tightened.

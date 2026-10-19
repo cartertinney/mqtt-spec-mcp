@@ -291,6 +291,10 @@ appear in the body.
   pattern that spells out its own negation now matches whole words only (also after
   an escape such as `\b`), so `in[- ]?flight` or "another" no longer switch off the
   self-negation check.
+- Scorer 1.3.2, from the evidence-pack runs: a spaced dash (an em or en dash,
+  which normalization folds to `-`) ends a clause, so "it is not a failure - the
+  publish was accepted" credits "accepted". It changed 4 of 3,612 stored answers,
+  all to correct credit.
 - All four agent conditions are implemented as in-process tools with identical
   loop and limits (12 tool calls), and each reaches the same material: the
   specification(s) the case is about. `full_spec` and `grep` get that text; `mcp`

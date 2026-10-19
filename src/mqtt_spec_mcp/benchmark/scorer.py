@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .cases import Case, FactPattern
 
-SCORER_VERSION = "1.3.1"
+SCORER_VERSION = "1.3.2"
 FACT_WEIGHT = 0.8
 CITATION_WEIGHT = 0.2
 NEGATION_WINDOW = 48
@@ -41,8 +41,10 @@ _NEGATION = re.compile(
     r"shouldn't|without|neither|nor|none)\b|n't\b|\bno\b(?!\s*(?:,|-\s))",
     re.IGNORECASE,
 )
+# A spaced dash (em or en dash after ``fold``) also ends a clause: "it is not a
+# failure - the publish was accepted".
 _SENTENCE_BREAK = re.compile(
-    r"[.!?;:\n]\s|\n"
+    r"[.!?;:\n]\s|\n|\s-\s"
     r"|,\s+(?:and|but|so|whereas|while|only|just|instead|yet)\b"
     r"|\b(?:but|whereas|although|though|however|because)\b",
     re.IGNORECASE,

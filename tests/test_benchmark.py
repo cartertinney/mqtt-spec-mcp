@@ -126,6 +126,9 @@ def test_negation_is_scoped_to_the_clause() -> None:
     assert affirmed("It has no payload, only the Packet Identifier.", "identifier")
     assert affirmed("It is not stored but discarded.", "discarded")
     assert affirmed("The server must not only store it, it forwards it.", "store")
+    assert affirmed("It is not a failure \u2014 the publish was accepted.", "accepted")
+    assert affirmed("In 3.1.1 it cannot - it must close the connection.", "close")
+    assert not affirmed("It is not-accepted.", "accepted")
     assert matches_fact(
         "The Server MUST NOT (see 3.1.4) discard it.", ["discard"], "negate"
     )

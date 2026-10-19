@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from mqtt_spec_mcp.engine import SpecEngine
 from mqtt_spec_mcp.search import MAX_QUERY_TERMS, query_terms
 from mqtt_spec_mcp.server import MqttSpecService
 from scripts.indexgen.parse import parse_document
@@ -464,3 +465,47 @@ def test_lenience_does_not_reach_version_or_ranges(
     err: Callable[..., str], args: dict[str, Any]
 ) -> None:
     assert "Invalid arguments" in err("mqtt_spec_outline", **args)
+
+
+def test_snippets_are_query_focused_passages(engines: dict[str, SpecEngine]) -> None:
+    engine = engines["5.0"]
+    body = engine.sections["3.3.2.3.4"].body
+    snippet = engine.search_index.passages(body, "Topic Alias of 0 not permitted", 320)
+    assert len(snippet) <= 320 < len(body)
+    assert "A Topic Alias of 0 is not permitted." in snippet
+    assert " ... " in snippet
+    assert snippet.endswith("...")
+    assert snippet.index("MUST NOT carry forward") < snippet.index("of 0 is not")
+    assert engine.search_index.passages("Short text.", "text", 320) == "Short text."
+
+
+def test_passages_never_exceed_the_budget(engines: dict[str, SpecEngine]) -> None:
+    queries = ("session state", "close the network connection", "MUST NOT", "zzz")
+    for engine in engines.values():
+        longest = sorted(engine.ordered, key=lambda info: -len(info.body))[:30]
+        for info in longest:
+            for query in queries:
+                for budget in (320, 700, 1600):
+                    snippet = engine.search_index.passages(info.body, query, budget)
+                    assert len(snippet) <= budget, (info.id, query, budget)
+
+
+def test_overlong_best_sentence_falls_back_to_a_window(
+    engines: dict[str, SpecEngine],
+) -> None:
+    text = "Intro. " + "filler " * 60 + "needle here " + "filler " * 60 + "end. Outro."
+    snippet = engines["5.0"].search_index.passages(text, "needle", 320)
+    assert "needle" in snippet
+    assert len(snippet) <= 320
+    assert snippet.startswith("...")
+    assert snippet.endswith("...")
+
+
+def test_later_results_share_a_fixed_snippet_budget(call: Call) -> None:
+    for limit, cap in ((3, 640), (5, 320)):
+        outcome = call("mqtt_spec_search", version="5.0", query="session", limit=limit)
+        result = json.loads(outcome.text)
+        later = result["results"][1:]
+        assert len(later) == limit - 1
+        assert all(len(r["snippet"]) <= cap for r in later)
+        assert len(outcome.text) < 5000

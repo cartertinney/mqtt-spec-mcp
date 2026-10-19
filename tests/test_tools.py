@@ -51,10 +51,10 @@ def test_search_shared_subscription_in_chapter_4(ok: JsonCall) -> None:
     )
     first, *rest = result["results"]
     assert first["section"] == "4.8.2"
-    assert len(first["snippet"]) > 320
+    assert len(first["snippet"]) > 640
     assert "$share/{ShareName}/{filter}" in first["snippet"]
     assert "only sent to one of its subscribing Sessions" in first["snippet"]
-    assert all(len(r["snippet"]) <= 323 for r in rest)
+    assert all(len(r["snippet"]) <= 640 for r in rest)
     assert result["chapter"] == "4"
     assert all(r["section"].startswith("4.") for r in result["results"])
 

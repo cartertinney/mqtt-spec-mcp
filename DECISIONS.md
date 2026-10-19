@@ -117,15 +117,40 @@ appear in the body.
 - These settings were chosen by measuring the 120-case retrieval benchmark, a
   separate set of 45 practitioner queries, and title self-retrieval together,
   taking values from the flat middle of the range rather than the single best.
-- Snippets: 1,600 characters for the first result, 320 for others, 700 for
-  `parent_context`; all limits include the `...` markers. The window centers on
-  the first whole-word phrase match, else on the densest cluster of informative
-  query terms, and is cut at word boundaries.
+- Snippets: 1,600 characters for the first result, 700 for `parent_context`, and
+  1,280 shared by the later results, at most 640 each (640 at the default limit of
+  3, 320 at limit 5); all limits include the `...` markers. A text within the budget
+  is returned whole. Longer texts get query-focused passages rather than one window:
+  the body is split into sentences (each line, split after `.`, `;`, `!`, `?`), each
+  sentence is scored by the idf of the distinct query terms it contains (+5 when it
+  holds the whole query phrase), and sentences are added best first, each followed
+  by its next and previous sentence for context, while they fit. They are printed in
+  document order with ` ... ` between non-adjacent passages. If the best sentence
+  alone exceeds the budget, or nothing matches, the snippet is one window anchored
+  inside that sentence (else on the first whole-word phrase match or densest cluster
+  of query terms), cut at word boundaries. Measured on the queries the model actually
+  issued in the full agent benchmark, passages raised the share of answer-key facts
+  present in the first search response from 0.67 to 0.72 at the same response size.
+  Re-ranking by best single-sentence coverage was also tried: it added at most 0.01
+  and lowered every retrieval metric, so it was rejected.
+- Later results get 640 characters, up from an initial 320: on the same replayed
+  queries this raised fact coverage of the first search response from 0.72 to 0.77
+  (0.77 to 0.81 after a get of `best_section`) for about 600 more characters, with
+  search responses averaging about 3,900 characters. Most facts the MCP condition
+  missed were in the second or third result, which a 320-character snippet rarely
+  reached. The default `limit` stays 3, and later results share a fixed budget so
+  a search with `limit` 5 stays under 5,000 characters.
 - Requirement-label queries always show the requirement: 3.1.1 quotes the indexed
   excerpt (as required); 5.0 windows the printed label, falling back to the
   excerpt for the two labels reconciled from Appendix B.
 - `next_step` names `best_section`, allows another listed section whose snippet
-  fits better, and keeps the required "Do not search again for this question."
+  fits better, and keeps the required "Do not search again for this question." It
+  starts by saying snippets are partial excerpts, to answer from them only if they
+  state every fact the question asks for: in the first full agent benchmark run,
+  47 of 120 MCP 5.0 runs answered from a single search, and most facts the MCP
+  condition missed against the full-spec condition were outside what it had read.
+  The server instructions also tell the agent to consult the tools before answering
+  (4 of those 120 runs answered from memory and scored 0.59 on average).
 
 ## Section resolution
 
@@ -182,14 +207,26 @@ appear in the body.
 
 ## Benchmark
 
+- The corpus covers both versions: 120 MQTT 5.0 cases, 60 MQTT 3.1.1 cases (a
+  half-size set with the same category proportions) and 20 comparison cases. Each
+  case has `version` "3.1.1", "5.0" or "both". In comparison cases every fact,
+  forbidden claim and lookup names its version, and section references are
+  version-qualified (`3.1.1:3.1.2.4`), because the same number often means
+  different things in the two versions. Answers cite bare section numbers, so a
+  comparison citation group is satisfied by its number in either version.
 - Case schema additions beyond the required fields: each fact and forbidden claim
   names the `section` that grounds it, and each case has a `reference_answer`.
   The validator requires every fact to have one regex alternative matching its
-  section's text, every case's reference answer to pass the scorer within its
-  word limit, no 8-word run of a prompt or search query to be copied from the
-  spec, and lookups/queries not to reuse unit-test scenarios.
+  section's text in its version, every case's reference answer to pass the scorer
+  within its word limit, no 8-word run of a prompt or search query to be copied
+  from either spec, lookups/queries not to reuse unit-test scenarios, comparison
+  prompts to name both versions, and each single-version set to cover all seven
+  chapters and every control packet of its version.
 - Retrieval metrics: Recall@k = mean(|relevant ∩ top-k| / min(|relevant|, k));
   hit rate = any relevant section in the top 5; MRR on the first relevant hit.
+  Each case's reference query is ranked against every version it is about, so a
+  comparison case contributes one query per version; metrics are reported overall
+  and per version.
 - Scorer negation (scorer 1.1.0): an affirmed fact is not credited if a negation
   cue appears in the 48 characters before the match within the same clause; a
   negated fact requires a cue there or inside the match; a forbidden claim is a
@@ -197,16 +234,51 @@ appear in the body.
   inside forbidden matches, which flagged correct answers such as "should not
   retransmit"; found by the answer-key review.) Section citations ignore numbers
   directly preceded by `MQTT`, `v` or `version`; citing a descendant of a cited
-  section satisfies the group.
+  section satisfies the group. Scorer 1.2.0 accepts version-qualified citation
+  entries.
+- Scorer 1.3.0 and key windows, from the pilot run, where correct answers failed:
+  answers are normalized before matching. Markdown emphasis and code markers are
+  removed ("it **SHOULD NOT** disconnect"), a heading-only line is joined to the
+  paragraph it introduces with ": ", and curly apostrophes are folded. Negation is
+  scoped to the clause: parenthetical asides and earlier ", and"/", but" clauses
+  do not negate what follows, and an upper bound ("must not exceed 65535", "no
+  more than 3") states the bound instead of negating it. Sentence-scoped windows
+  in the answer keys also accept dots inside numbers and e.g./i.e., so an inline
+  citation ("per section 4.8, ...") does not end a match. Lookup cases accept the
+  packet-specific section or the summary table (2.1.x, 2.2.2.2, 2.4) in one
+  citation group, since either states the requested facts.
 - All four agent conditions are implemented as in-process tools with identical
-  loop and limits (12 tool calls). The `mcp` condition exposes this server's real
-  tool schemas and instructions, served by a 5.0-only service ("pinned"), so any
-  3.1.1 call fails rather than leaking the other version.
+  loop and limits (12 tool calls), and each reaches the same material: the
+  specification(s) the case is about. `full_spec` and `grep` get that text; `mcp`
+  gets this server's real tool schemas and instructions, served by an instance
+  loaded with only the case's version(s), so a call for any other version fails
+  rather than leaking it. Comparison cases load both versions everywhere.
+- The base prompt covers both versions and tells the model not to transfer rules
+  between them. Single-version questions are sent prefixed with `[MQTT 3.1.1]` or
+  `[MQTT 5.0]`, as a user of a multi-version tool would label them; comparison
+  questions name both versions themselves.
+- Run records carry four hashes: shared instructions (`base`), the condition's
+  prompt (`prompt`), the reference material it can reach (`reference`: the spec
+  text for `full_spec`/`grep`; for `mcp`, the tool schemas, instructions, the source of
+  the server modules and the index files),
+  and the question (`case`: id, version, prompt, word limit). The report requires
+  one `base`, one `prompt`/`reference` per condition and one `case` hash per case,
+  so a single condition can be re-run after a server change and compared with
+  stored results for the others. Answer keys are excluded from the hashes because
+  `--rescore` re-applies the current keys to stored answers.
+- Resumed runs append retries after failed attempts; the report keeps one record
+  per (model, condition, case, epoch): the last successful one, else the last
+  failure.
 - Copilot SDK runner: `CopilotClient(mode="empty")`, built-in tools disabled via
   `available_tools` (custom tools only, or none), system message in `replace`
-  mode, infinite sessions off, one fresh session per run.
+  mode, infinite sessions off, one fresh session per run, `--concurrency` sessions
+  at a time. Token counts come from the runtime's per-call usage events:
+  `input_tokens` includes cache reads and writes (observed: input = cache read +
+  cache write + uncached), and `cost` is the runtime's premium-request units, one
+  per model call for Claude Sonnet 5, so multi-call conditions cost more per run.
 - Inspect AI runner: a per-sample `react` agent without the submit tool, so the
   loop ends when the model answers, matching the Copilot loop. Conditions are
-  separate tasks; the case order is seeded via dataset shuffling.
-- The benchmark covers MQTT 5.0 only for v1; extending it to 3.1.1 is deferred.
+  separate tasks (`mqtt_none`, `mqtt_full_spec`, `mqtt_grep`, `mqtt_mcp`, or
+  `mqtt_reference -T condition=...`), filtered with `-T versions=...`; the case
+  order is seeded via dataset shuffling.
 - Not published to PyPI for v1.

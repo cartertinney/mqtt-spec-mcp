@@ -35,6 +35,7 @@ def load_inspect_logs(paths: Sequence[Path]) -> list[RunRecord]:
                     model=log.eval.model,
                     condition=condition,
                     case_id=str(sample.id),
+                    version=str((sample.metadata or {}).get("version", "?")),
                     epoch=sample.epoch - 1,
                     seed=seed,
                     answer=sample.output.completion if sample.output else "",
@@ -42,7 +43,10 @@ def load_inspect_logs(paths: Sequence[Path]) -> list[RunRecord]:
                     latency_s=float(sample.total_time or 0.0),
                     usage=usage,
                     tool_calls=[ToolCallRecord(**c) for c in calls],
-                    hashes=dict(meta.get("hashes", {})),
+                    hashes={
+                        **dict(meta.get("hashes", {})),
+                        "case": str((sample.metadata or {}).get("case_hash", "")),
+                    },
                 )
             )
     return records

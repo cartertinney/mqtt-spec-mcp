@@ -120,7 +120,8 @@ def run(repetitions: int, stdio: bool) -> dict[str, Any]:
     )
     report: dict[str, Any] = {
         "tokenizer": TOKENIZER if encoder is not None else None,
-        "full_spec_5_0": _measure(render_spec_text(), encoder),
+        "full_spec_3_1_1": _measure(render_spec_text("3.1.1"), encoder),
+        "full_spec_5_0": _measure(render_spec_text("5.0"), encoder),
         "tool_schemas": _measure(schemas, encoder),
         "server_instructions": _measure(INSTRUCTIONS, encoder),
         "in_process": in_process(repetitions),

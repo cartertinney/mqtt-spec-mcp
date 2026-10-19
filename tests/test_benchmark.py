@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from mqtt_spec_mcp.benchmark import conditions, report
-from mqtt_spec_mcp.benchmark.cases import Case, parse_cases
+from mqtt_spec_mcp.benchmark.cases import Case, load_cases, parse_cases
 from mqtt_spec_mcp.benchmark.runs import (
     RunRecord,
     Usage,
@@ -22,6 +22,7 @@ from mqtt_spec_mcp.benchmark.scorer import (
     SCORER_VERSION,
     cited_sections,
     matches_fact,
+    plain,
     score_answer,
 )
 
@@ -29,6 +30,7 @@ from mqtt_spec_mcp.benchmark.scorer import (
 def make_case(**overrides: Any) -> Case:
     data: dict[str, Any] = {
         "id": "demo-retained-flag",
+        "version": "5.0",
         "category": "normative",
         "prompt": "Does the broker keep a retained copy when RETAIN is one?",
         "facts": [
@@ -68,6 +70,79 @@ def test_negated_fact_requires_negation() -> None:
     assert not matches_fact(
         "Retained messages are part of the Session State.", patterns, "negate"
     )
+
+
+def test_plain_drops_markdown_and_joins_headings() -> None:
+    assert plain("it **SHOULD NOT** disconnect, *complete* `a/+`") == (
+        "it SHOULD NOT disconnect, complete a/+"
+    )
+    assert plain("snake_case stays, _italic_ goes") == "snake_case stays, italic goes"
+    assert plain("**3. Buffer full**\nThe broker MUST close it.") == (
+        "3. Buffer full: The broker MUST close it."
+    )
+    assert plain("## Port\n\nUse 8883.") == "Port: Use 8883."
+    assert plain("- **Label:**\nText") == "Label: Text"
+    assert plain("**Byte 1**: type 10\nnext") == "Byte 1: type 10\nnext"
+    assert plain("doesn\u2019t \u2014 x") == "doesn't - x"
+
+
+def test_markdown_emphasis_does_not_hide_facts() -> None:
+    case = make_case(
+        facts=[
+            {"id": "close", "any": ["MUST\\s+close"], "section": "4.8"},
+            {
+                "id": "others",
+                "any": ["SHOULD\\s+NOT\\s+disconnect"],
+                "polarity": "negate",
+                "section": "4.8",
+            },
+        ],
+        citations=[["4.8"]],
+        forbidden=[],
+    )
+    answer = (
+        "**Transient error**\nIt **MUST** close; "
+        "it **SHOULD NOT** disconnect others (4.8)."
+    )
+    assert score_answer(case, answer).passed
+
+
+def test_negation_is_scoped_to_the_clause() -> None:
+    def affirmed(text: str, pattern: str) -> bool:
+        return matches_fact(plain(text), [pattern], "affirm")
+
+    assert affirmed("Strings MUST NOT exceed 65535 bytes.", "65535")
+    assert affirmed("It allows no more than 3 retries.", "3 retries")
+    assert not affirmed("The client cannot exceed it.", "exceed")
+    assert affirmed("It creates one (if none exists) and resumes it.", "resumes")
+    assert affirmed("It is not discarded, and resumes it.", "resumes")
+    assert not affirmed("It does not resume the session.", "resume")
+    assert not affirmed("The server doesn\u2019t store it.", "store")
+    assert affirmed("No, values 6-255 are reserved.", "reserved")
+    assert affirmed("No - 0 and 15 are reserved.", "reserved")
+    assert not affirmed("There is no reserved value.", "reserved")
+    assert affirmed("If no PINGRESP arrives, the client should close it.", "close")
+    assert not affirmed("If the client does not close it, ...", "close")
+    assert affirmed("It has no payload, only the Packet Identifier.", "identifier")
+    assert affirmed("It is not stored but discarded.", "discarded")
+    assert affirmed("The server must not only store it, it forwards it.", "store")
+    assert matches_fact(
+        "The Server MUST NOT (see 3.1.4) discard it.", ["discard"], "negate"
+    )
+    assert not matches_fact("No, it disconnects others.", ["disconnect"], "negate")
+
+
+def test_affirmed_fact_negated_inside_its_own_match() -> None:
+    published = r"will\b[^.]{0,40}?(?:is|gets)\s+(?:\w+\s+){0,2}?published"
+    assert matches_fact("The Will is published.", [published], "affirm")
+    assert not matches_fact("The Will is not published.", [published], "affirm")
+    assert matches_fact(
+        "The Will is not deleted, and is published.",
+        [r"will\b[^.]{0,60}?published"],
+        "affirm",
+    )
+    # A pattern that spells out a negation handles it itself.
+    assert matches_fact("It must not use them.", [r"must\s+not\s+use"], "affirm")
 
 
 def test_citation_detection_ignores_version_numbers() -> None:
@@ -112,6 +187,14 @@ def test_concision() -> None:
 def test_case_schema_is_strict() -> None:
     with pytest.raises(ValueError, match="invalid benchmark cases"):
         make_case(unexpected=True)
+
+
+def test_load_cases_rejects_duplicate_ids(tmp_path: Path) -> None:
+    line = make_case().model_dump_json()
+    path = tmp_path / "cases.jsonl"
+    path.write_text(f"{line}\n{line}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate benchmark case ids: demo-"):
+        load_cases(path)
     with pytest.raises(ValueError, match="invalid benchmark cases"):
         make_case(category="trivia")
 
@@ -130,20 +213,30 @@ def test_plan_is_seeded_and_rotates_conditions() -> None:
 
 
 def test_grep_and_read_tools() -> None:
-    text, error = conditions._grep({"pattern": "Will Delay Interval", "max_results": 3})
+    grep, read = (t.handler for t in conditions.grep_tools(["5.0"]))
+    text, error = grep({"pattern": "Will Delay Interval", "max_results": 3})
     assert not error
     assert text.count("\n") >= 2
     first_line = int(text.split(":")[0])
-    page, error = conditions._read({"start_line": first_line, "max_lines": 80})
+    page, error = read({"start_line": first_line, "max_lines": 80})
     assert not error
     assert page.splitlines()[-1].startswith("next_line:")
     assert len(page.splitlines()) == 81
-    assert conditions._read({"start_line": 1, "max_lines": 81})[1]
-    assert conditions._grep({"pattern": "("})[0]  # invalid regex falls back to literal
+    assert read({"start_line": 1, "max_lines": 81})[1]
+    assert grep({"pattern": "("})[0]  # invalid regex falls back to literal
+
+
+def test_grep_text_holds_only_the_case_versions() -> None:
+    grep_311, _ = (t.handler for t in conditions.grep_tools(["3.1.1"]))
+    assert "No matching lines" in grep_311({"pattern": "Session Expiry Interval"})[0]
+    grep_both, _ = (t.handler for t in conditions.grep_tools(["3.1.1", "5.0"]))
+    headings, _ = grep_both({"pattern": "^# MQTT Version"})
+    assert "MQTT Version 3.1.1" in headings
+    assert "MQTT Version 5.0" in headings
 
 
 def test_tool_budget_is_enforced() -> None:
-    session = conditions.ToolSession(conditions.tools_for("mcp"), max_calls=1)
+    session = conditions.ToolSession(conditions.tools_for("mcp", ["5.0"]), max_calls=1)
     args = {"version": "5.0", "kind": "packet", "query": "PUBACK"}
     assert not session.invoke("mqtt_spec_lookup", args)[1]
     text, error = session.invoke("mqtt_spec_lookup", args)
@@ -151,39 +244,61 @@ def test_tool_budget_is_enforced() -> None:
     assert "budget" in text
 
 
-def test_mcp_condition_is_pinned_to_50() -> None:
-    session = conditions.ToolSession(conditions.tools_for("mcp"))
-    text, error = session.invoke("mqtt_spec_outline", {"version": "3.1.1"})
+@pytest.mark.parametrize(("loaded", "other"), [("5.0", "3.1.1"), ("3.1.1", "5.0")])
+def test_mcp_condition_is_pinned_to_case_versions(loaded: str, other: str) -> None:
+    session = conditions.ToolSession(conditions.tools_for("mcp", [loaded]))
+    text, error = session.invoke("mqtt_spec_outline", {"version": other})
     assert error
     assert "not loaded" in text
+    assert not session.invoke("mqtt_spec_outline", {"version": loaded})[1]
+    both = conditions.ToolSession(conditions.tools_for("mcp", ["3.1.1", "5.0"]))
+    assert not both.invoke("mqtt_spec_outline", {"version": other})[1]
 
 
 def test_system_prompts_share_base() -> None:
-    prompts = {c: conditions.system_prompt(c, 120) for c in conditions.CONDITIONS}
     base = conditions.BASE_PROMPT.format(word_limit=120)
-    assert all(p.startswith(base) for p in prompts.values())
-    assert (
-        "## 3.1.2.4 Clean Start" in prompts["full_spec"]
-        or "3.1.2.4 Clean Start" in (prompts["full_spec"])
+    for versions in (["5.0"], ["3.1.1"], ["3.1.1", "5.0"]):
+        prompts = {
+            c: conditions.system_prompt(c, 120, versions) for c in conditions.CONDITIONS
+        }
+        assert all(p.startswith(base) for p in prompts.values())
+        assert len(prompts["mcp"]) < 5_000
+    only_50 = conditions.system_prompt("full_spec", 120, ["5.0"])
+    assert "3.1.2.4 Clean Start" in only_50
+    assert "MQTT Version 3.1.1" not in only_50.split("SPECIFICATION")[1]
+    both = conditions.system_prompt("full_spec", 120, ["3.1.1", "5.0"])
+    assert "3.1.2.4 Clean Session" in both
+    assert "3.1.2.4 Clean Start" in both
+
+
+def test_user_message_labels_single_version_questions() -> None:
+    assert conditions.user_message("Q?", ["3.1.1"]) == "[MQTT 3.1.1] Q?"
+    assert conditions.user_message("In 3.1.1 vs 5.0?", ["3.1.1", "5.0"]) == (
+        "In 3.1.1 vs 5.0?"
     )
-    assert len(prompts["full_spec"]) > 100_000
-    assert len(prompts["mcp"]) < 5_000
 
 
 def _record(
-    condition: str, case_id: str, quality: float, tokens: int, latency: float
+    condition: str,
+    case_id: str,
+    quality: float,
+    tokens: int,
+    latency: float,
+    *,
+    version: str = "5.0",
 ) -> RunRecord:
     return RunRecord(
         runner="test",
         model="m",
         condition=condition,
         case_id=case_id,
+        version=version,
         epoch=0,
         seed=1,
         answer="a",
         latency_s=latency,
         usage=Usage(input_tokens=tokens),
-        hashes={"prompt": "p", "benchmark": "b", "server": "s"},
+        hashes={"base": "b", "prompt": condition, "reference": "r", "case": case_id},
         score={"quality": quality, "passed": quality == 1.0, "concision": 1.0},
     )
 
@@ -206,6 +321,11 @@ def test_report_pairs_bootstrap_and_gates(tmp_path: Path) -> None:
         append_record(path, record)
     assert len(load_records([path])) == 40
     assert len(completed_keys(path)) == 40
+    expected = {(r.condition, r.case_id): r.hashes for r in records}
+    assert len(completed_keys(path, expected)) == 40
+    expected[("mcp", "c0")] = {**expected[("mcp", "c0")], "reference": "changed"}
+    assert ("m", "mcp", "c0", 0) not in completed_keys(path, expected)
+    assert len(completed_keys(path, expected)) == 39
     assert (
         report.main(
             [str(path), "--gate-token-reduction", "0.5", "--gate-speedup", "1.2"]
@@ -217,14 +337,50 @@ def test_report_pairs_bootstrap_and_gates(tmp_path: Path) -> None:
 
 def test_report_refuses_mixed_hashes(tmp_path: Path) -> None:
     a = _record("mcp", "c1", 1.0, 10, 1.0)
-    b = _record("full_spec", "c1", 1.0, 10, 1.0)
-    b.hashes = {**b.hashes, "server": "different"}
+    b = _record("mcp", "c2", 1.0, 10, 1.0)
+    b.hashes = {**b.hashes, "reference": "different server"}
     path = tmp_path / "mixed.jsonl"
     append_record(path, a)
     append_record(path, b)
     assert report.main([str(path)]) == 1
-    with pytest.raises(report.ReportError):
+    with pytest.raises(report.ReportError, match="mcp: different reference"):
         report.check_compatible([a, b])
+    asked = _record("full_spec", "c1", 1.0, 10, 1.0)
+    asked.hashes = {**asked.hashes, "case": "changed question"}
+    with pytest.raises(report.ReportError, match="questions changed"):
+        report.check_compatible([a, asked])
+
+
+def test_report_allows_rerunning_one_condition() -> None:
+    old = [_record("full_spec", f"c{i}", 1.0, 100, 2.0) for i in range(3)]
+    new = [_record("mcp", f"c{i}", 1.0, 10, 1.0) for i in range(3)]
+    for record in new:
+        record.hashes = {**record.hashes, "reference": "fixed server"}
+    report.check_compatible(old + new)
+
+
+def test_latest_records_prefer_successful_retries() -> None:
+    from mqtt_spec_mcp.benchmark.runs import latest_records
+
+    failed = _record("mcp", "c1", 0.0, 0, 0.0)
+    failed.error = "TimeoutError"
+    retried = _record("mcp", "c1", 1.0, 10, 1.0)
+    later_failure = _record("mcp", "c1", 0.0, 0, 0.0)
+    later_failure.error = "RateLimit"
+    assert latest_records([failed, retried, later_failure]) == [retried]
+
+
+def test_report_breaks_down_by_version() -> None:
+    records = [
+        _record("full_spec", "a", 1.0, 100, 2.0, version="3.1.1"),
+        _record("mcp", "a", 0.0, 10, 1.0, version="3.1.1"),
+        _record("full_spec", "b", 1.0, 100, 2.0, version="5.0"),
+        _record("mcp", "b", 1.0, 10, 1.0, version="5.0"),
+    ]
+    rows = {(r["condition"], r["version"]): r for r in report.summarize(records, True)}
+    assert rows[("mcp", "3.1.1")]["quality"] == 0.0
+    assert rows[("mcp", "5.0")]["quality"] == 1.0
+    assert report.compare(records, "full_spec", "mcp", "3.1.1")[0]["pairs"] == 1
 
 
 def test_forbidden_claim_negated_inside_match_is_not_a_violation() -> None:
@@ -245,11 +401,16 @@ def test_forbidden_claim_negated_inside_match_is_not_a_violation() -> None:
 
 
 def test_bundled_corpus_is_valid() -> None:
-    from mqtt_spec_mcp.benchmark.cases import load_cases, validate_cases
+    from mqtt_spec_mcp.benchmark.cases import (
+        CATEGORY_TARGETS,
+        load_cases,
+        validate_cases,
+    )
 
     cases = load_cases()
-    assert len(cases) == 120
-    assert validate_cases(cases) == []
+    expected = sum(sum(mix.values()) for mix in CATEGORY_TARGETS.values())
+    assert len(cases) == expected
+    assert validate_cases(cases, require_scopes=CATEGORY_TARGETS) == []
 
 
 def test_retrieval_benchmark_runs() -> None:
@@ -259,3 +420,4 @@ def test_retrieval_benchmark_runs() -> None:
     result = evaluate(load_cases())
     assert result["lookup_success"] == 1.0
     assert result["hit_rate"] >= 0.9
+    assert set(result["by_version"]) == {"3.1.1", "5.0"}

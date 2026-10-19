@@ -3,8 +3,9 @@
 Each (case, condition, epoch) runs in a fresh Copilot session with the built-in
 tools turned off, the same base prompt, a replaced system message and the
 condition's custom tools. Case order is seeded per epoch and condition order
-rotates between cases. Every finished run is appended to the output JSONL file
-immediately, so an interrupted benchmark resumes where it stopped.
+rotates between cases; ``--concurrency`` sessions run at once. Every finished run
+is appended to the output JSONL file immediately, so an interrupted benchmark
+resumes where it stopped (failed runs are retried on the next invocation).
 
 Requires the ``benchmark`` extra (Python 3.11+) and a logged-in Copilot CLI user.
 """
@@ -13,9 +14,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import random
 import sys
 import tempfile
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -25,15 +28,24 @@ from copilot.session_events import AssistantUsageData
 from copilot.tools import Tool, ToolInvocation, ToolResult
 
 from .cases import Case, load_cases
-from .conditions import CONDITIONS, Condition, ToolSession, system_prompt, tools_for
+from .conditions import (
+    CONDITIONS,
+    Condition,
+    ToolSession,
+    system_prompt,
+    tools_for,
+    user_message,
+)
 from .runs import (
+    PlanItem,
     RunRecord,
     ToolCallRecord,
     Usage,
     append_record,
     build_plan,
+    case_hash,
     completed_keys,
-    run_hashes,
+    condition_hashes,
 )
 from .scorer import score_answer
 
@@ -80,7 +92,7 @@ async def run_one(
     hashes: dict[str, str],
     timeout: float,
 ) -> RunRecord:
-    tool_session = ToolSession(tools_for(condition))
+    tool_session = ToolSession(tools_for(condition, case.versions))
     usage = Usage()
 
     def on_event(event: Any) -> None:
@@ -106,13 +118,15 @@ async def run_one(
             available_tools=available,
             system_message={
                 "mode": "replace",
-                "content": system_prompt(condition, case.word_limit),
+                "content": system_prompt(condition, case.word_limit, case.versions),
             },
             infinite_sessions={"enabled": False},
         )
         async with session:
             session.on(on_event)
-            reply = await session.send_and_wait(case.prompt, timeout=timeout)
+            reply = await session.send_and_wait(
+                user_message(case.prompt, case.versions), timeout=timeout
+            )
             content = getattr(getattr(reply, "data", None), "content", None)
             answer = content if isinstance(content, str) else ""
             if not answer:
@@ -125,6 +139,7 @@ async def run_one(
         model=model,
         condition=condition,
         case_id=case.id,
+        version=case.version,
         epoch=epoch,
         seed=seed,
         answer=answer,
@@ -148,43 +163,72 @@ async def run_one(
     return record
 
 
+def stratified_sample(cases: Sequence[Case], size: int, seed: int) -> list[Case]:
+    """A deterministic sample spread across (version, category) groups."""
+    groups: dict[tuple[str, str], list[Case]] = {}
+    for case in sorted(cases, key=lambda c: c.id):
+        groups.setdefault((case.version, case.category), []).append(case)
+    rng = random.Random(seed)  # noqa: S311 - reproducible sampling, not crypto
+    for members in groups.values():
+        rng.shuffle(members)
+    chosen: list[Case] = []
+    keys = sorted(groups)
+    while len(chosen) < min(size, len(cases)):
+        for key in keys:
+            if groups[key] and len(chosen) < size:
+                chosen.append(groups[key].pop())
+    return chosen
+
+
 async def run_benchmark(args: argparse.Namespace) -> int:
-    cases = load_cases(args.cases)
+    cases = load_cases(args.cases, versions=args.versions)
     if args.case:
         cases = [c for c in cases if c.id in set(args.case)]
-    if args.limit:
-        cases = cases[: args.limit]
+    if args.sample:
+        cases = stratified_sample(cases, args.sample, args.seed)
     by_id = {c.id: c for c in cases}
     conditions: list[Condition] = args.conditions
     plan = build_plan(cases, conditions, args.epochs, args.seed)
-    hashes = run_hashes(args.cases)
-    done = completed_keys(args.output)
+    by_condition = {c: condition_hashes(c) for c in conditions}
+    expected: dict[tuple[str, str], dict[str, str]] = {
+        (c, case.id): {**by_condition[c], "case": case_hash(case)}
+        for c in conditions
+        for case in cases
+    }
+    done = completed_keys(args.output, expected)
     todo = [
         p for p in plan if (args.model, p.condition, p.case_id, p.epoch) not in done
     ]
     print(f"{len(plan)} planned runs, {len(plan) - len(todo)} already done", flush=True)
+    gate = asyncio.Semaphore(args.concurrency)
+    finished = 0
+
+    async def worker(item: PlanItem) -> None:
+        nonlocal finished
+        async with gate:
+            record = await run_one(
+                client,
+                case=by_id[item.case_id],
+                condition=item.condition,  # type: ignore[arg-type]
+                model=args.model,
+                epoch=item.epoch,
+                seed=args.seed,
+                hashes=expected[(item.condition, item.case_id)],
+                timeout=args.timeout,
+            )
+        append_record(args.output, record)
+        finished += 1
+        quality = record.score["quality"] if record.score else f"error: {record.error}"
+        print(
+            f"[{finished}/{len(todo)}] {item.condition:9s} {item.case_id} "
+            f"epoch={item.epoch} quality={quality} tools={len(record.tool_calls)} "
+            f"tokens={record.usage.total_tokens} {record.latency_s:.0f}s",
+            flush=True,
+        )
+
     with tempfile.TemporaryDirectory(prefix="mqtt-bench-copilot-") as base:
         async with CopilotClient(mode="empty", base_directory=base) as client:
-            for index, item in enumerate(todo, start=1):
-                record = await run_one(
-                    client,
-                    case=by_id[item.case_id],
-                    condition=item.condition,  # type: ignore[arg-type]
-                    model=args.model,
-                    epoch=item.epoch,
-                    seed=args.seed,
-                    hashes=hashes,
-                    timeout=args.timeout,
-                )
-                append_record(args.output, record)
-                quality = record.score["quality"] if record.score else "error"
-                print(
-                    f"[{index}/{len(todo)}] {item.condition:9s} {item.case_id} "
-                    f"epoch={item.epoch} quality={quality} "
-                    f"tools={len(record.tool_calls)} "
-                    f"tokens={record.usage.total_tokens}",
-                    flush=True,
-                )
+            await asyncio.gather(*(worker(item) for item in todo))
     return 0
 
 
@@ -196,7 +240,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--seed", type=int, default=20261016)
-    parser.add_argument("--limit", type=int, help="only the first N cases")
+    parser.add_argument(
+        "--sample",
+        type=int,
+        help="a seeded sample of N cases across versions/categories",
+    )
+    parser.add_argument(
+        "--versions",
+        nargs="+",
+        choices=("3.1.1", "5.0", "both"),
+        help="only cases about these versions (default: all)",
+    )
+    parser.add_argument(
+        "--concurrency", type=int, default=4, help="sessions run in parallel"
+    )
     parser.add_argument(
         "--case", action="append", help="run only this case id (repeatable)"
     )

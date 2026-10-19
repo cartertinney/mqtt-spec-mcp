@@ -41,8 +41,11 @@ BOOST_TITLE_PAIR = 6.0
 BOOST_HEX_IDENTIFIER = 8.0
 BOOST_BODY_PAIR = 2.0
 FIRST_SNIPPET_CHARS = 1600
-OTHER_SNIPPET_CHARS = 320
+OTHER_SNIPPET_CHARS = 640
+# Later results share this budget, so a larger limit does not grow the response.
+LATER_SNIPPETS_CHARS = 1280
 PARENT_SNIPPET_CHARS = 700
+PASSAGE_PHRASE_BONUS = 5.0
 MAX_QUERY_TERMS = 32
 CLUSTER_SPAN = 400
 MAX_SNIPPET_LABELS = 5
@@ -282,6 +285,54 @@ class SearchIndex:
 
     # Snippets ----------------------------------------------------------------------
 
+    def passages(self, text: str, query: str, budget: int) -> str:
+        """A snippet of at most ``budget`` chars made of the sentences that carry the
+        most query information, each with its neighbours for context, in document
+        order. Cuts are marked with ``...``; short texts are returned whole."""
+        if len(text) <= budget:
+            return text
+        units = _units(text)
+        haystack = match_form(text)
+        terms = query_terms(query)
+        patterns = [
+            re.compile(rf"(?<![0-9a-z]){re.escape(_prefix_form(t))}") for t in terms
+        ]
+        phrase = phrase_form(query) if len(terms) > 1 else ""
+        scores: list[float] = []
+        for start, end in units:
+            segment = haystack[start:end]
+            score = sum(
+                self.idf.get(t, self.max_idf)
+                for t, p in zip(terms, patterns, strict=True)
+                if p.search(segment)
+            )
+            if phrase and phrase in " ".join(segment.split()):
+                score += PASSAGE_PHRASE_BONUS
+            scores.append(score)
+        ranked = sorted(
+            (i for i, s in enumerate(scores) if s > 0), key=lambda i: (-scores[i], i)
+        )
+        chosen: set[int] = set()
+        for best in ranked:
+            if _passage_size(units, chosen | {best}) > budget:
+                if not chosen:
+                    # The most informative sentence alone is too long: window into it.
+                    start, end = units[best]
+                    local = self.anchor(text[start:end], query) or 0
+                    return window(text, start + local, budget)
+                continue
+            chosen.add(best)
+            for neighbour in (best + 1, best - 1):
+                if (
+                    0 <= neighbour < len(units)
+                    and neighbour not in chosen
+                    and _passage_size(units, chosen | {neighbour}) <= budget
+                ):
+                    chosen.add(neighbour)
+        if not chosen:
+            return window(text, self.anchor(text, query), budget)
+        return _render_passages(text, units, sorted(chosen))
+
     def anchor(self, text: str, query: str) -> int | None:
         """Where a snippet should focus: the first whole-word phrase match, else
         the start of the densest cluster of informative query terms."""
@@ -371,6 +422,49 @@ def window(text: str, anchor: int | None, budget: int) -> str:
     return prefix + text[start:end].strip() + ellipsis
 
 
+ELLIPSIS = "..."
+PASSAGE_GAP = " ... "
+_SENTENCE = re.compile(r"[^\n]*?(?:[.;!?](?=\s)|$)")
+
+
+def _units(text: str) -> list[tuple[int, int]]:
+    """Sentence-sized spans of ``text``: each line, split after . ; ! or ?."""
+    spans: list[tuple[int, int]] = []
+    for line in re.finditer(r"[^\n]+", text):
+        for match in _SENTENCE.finditer(line.group(0)):
+            piece = match.group(0)
+            if piece.strip():
+                start = line.start() + match.start() + len(piece) - len(piece.lstrip())
+                end = line.start() + match.start() + len(piece.rstrip())
+                spans.append((start, end))
+    return spans
+
+
+def _passage_size(units: list[tuple[int, int]], chosen: set[int]) -> int:
+    """Length of ``_render_passages`` for these units, without building it."""
+    order = sorted(chosen)
+    size = sum(units[i][1] - units[i][0] for i in order)
+    for prev, i in pairwise(order):
+        size += units[i][0] - units[prev][1] if i == prev + 1 else len(PASSAGE_GAP)
+    size += len(ELLIPSIS) if order[0] > 0 else 0
+    size += len(ELLIPSIS) if order[-1] < len(units) - 1 else 0
+    return size
+
+
+def _render_passages(text: str, units: list[tuple[int, int]], order: list[int]) -> str:
+    parts = [ELLIPSIS] if order[0] > 0 else []
+    for k, i in enumerate(order):
+        if k:
+            prev = order[k - 1]
+            parts.append(
+                text[units[prev][1] : units[i][0]] if i == prev + 1 else PASSAGE_GAP
+            )
+        parts.append(text[units[i][0] : units[i][1]])
+    if order[-1] < len(units) - 1:
+        parts.append(ELLIPSIS)
+    return "".join(parts)
+
+
 def snippet_labels(
     engine: SpecEngine, snippet: str, query_label: str | None
 ) -> list[str]:
@@ -408,12 +502,16 @@ def search(
     results: list[dict[str, Any]] = []
     for position, (_, doc) in enumerate(ranked):
         info = doc.info
-        budget = FIRST_SNIPPET_CHARS if position == 0 else OTHER_SNIPPET_CHARS
+        budget = (
+            FIRST_SNIPPET_CHARS
+            if position == 0
+            else min(OTHER_SNIPPET_CHARS, LATER_SNIPPETS_CHARS // (len(ranked) - 1))
+        )
         in_section = label is not None and label in info.section.requirements
         if in_section and label is not None:
             snippet = _label_snippet(engine, info, label, budget)
         else:
-            snippet = window(info.body, index.anchor(info.body, query), budget)
+            snippet = index.passages(info.body, query, budget)
         entry: dict[str, Any] = {
             "section": info.id,
             "title": info.title,
@@ -428,11 +526,7 @@ def search(
                 entry["parent_context"] = {
                     "section": parent.id,
                     "title": parent.title,
-                    "snippet": window(
-                        parent.body,
-                        index.anchor(parent.body, query),
-                        PARENT_SNIPPET_CHARS,
-                    ),
+                    "snippet": index.passages(parent.body, query, PARENT_SNIPPET_CHARS),
                 }
         results.append(entry)
 
@@ -440,7 +534,8 @@ def search(
     best = results[0]["section"] if results else None
     if results:
         next_step = (
-            "Answer from the first snippet if it contains the facts you need. "
+            "Snippets are partial excerpts. Answer from them only if they state every "
+            "fact the question asks for, with its conditions. "
             f"Otherwise call mqtt_spec_get once with version='{v}' and "
             f"section='{best}', or with another listed section whose snippet fits "
             "the question better. Do not search again for this question."

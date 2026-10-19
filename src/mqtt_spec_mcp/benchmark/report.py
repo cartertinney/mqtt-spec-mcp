@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .cases import Case, load_cases
-from .runs import RunRecord, benchmark_hash, load_records
+from .runs import RunRecord, case_hash, latest_records, load_records
 from .scorer import SCORER_VERSION, score_answer
 
 BOOTSTRAP_SAMPLES = 2000
@@ -34,27 +34,47 @@ class ReportError(RuntimeError):
 # Loading ---------------------------------------------------------------------------
 
 
-def rescore(
-    records: list[RunRecord], cases: dict[str, Case], current_hash: str
-) -> None:
+def rescore(records: list[RunRecord], cases: dict[str, Case]) -> None:
+    """Re-apply the current scorer and answer keys to stored answers."""
     for record in records:
         if record.error is not None:
             continue
-        if record.hashes.get("benchmark") != current_hash:
+        case = cases.get(record.case_id)
+        if case is None:
+            raise ReportError(f"cannot rescore {record.case_id}: not in the corpus")
+        if record.hashes.get("case") != case_hash(case):
             raise ReportError(
-                f"cannot rescore {record.case_id}: it was produced with a different "
-                "benchmark definition than the current case corpus"
+                f"cannot rescore {record.case_id}: its question changed since the run"
             )
-        record.score = score_answer(cases[record.case_id], record.answer).to_dict()
+        record.score = score_answer(case, record.answer).to_dict()
         record.scorer_version = SCORER_VERSION
 
 
-def check_compatible(records: list[RunRecord]) -> dict[str, str]:
-    groups = {json.dumps(r.hashes, sort_keys=True) for r in records}
-    if len(groups) > 1:
+def check_compatible(records: list[RunRecord]) -> dict[str, Any]:
+    """Refuse to compare runs that asked different questions or used different
+    shared instructions, prompts, or reference material for the same condition."""
+    problems: list[str] = []
+    bases = {r.hashes.get("base") for r in records}
+    if len(bases) > 1:
+        problems.append(f"different shared instructions {sorted(map(str, bases))}")
+    per_condition: dict[str, dict[str, set[str]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
+    per_case: dict[str, set[str]] = defaultdict(set)
+    for r in records:
+        for key in ("prompt", "reference"):
+            per_condition[r.condition][key].add(str(r.hashes.get(key)))
+        per_case[r.case_id].add(str(r.hashes.get("case")))
+    for condition, keys in sorted(per_condition.items()):
+        for key, values in keys.items():
+            if len(values) > 1:
+                problems.append(f"{condition}: different {key} hashes {sorted(values)}")
+    changed = sorted(case for case, values in per_case.items() if len(values) > 1)
+    if changed:
+        problems.append(f"questions changed between runs: {changed[:5]}")
+    if problems:
         raise ReportError(
-            "refusing to compare runs with different prompt/benchmark/server hashes: "
-            + "; ".join(sorted(groups))
+            "refusing to compare incompatible runs: " + "; ".join(problems)
         )
     versions = {r.scorer_version for r in records if r.score is not None}
     if len(versions) > 1:
@@ -62,7 +82,13 @@ def check_compatible(records: list[RunRecord]) -> dict[str, str]:
             f"records were scored by different scorer versions {sorted(versions)}; "
             "use --rescore"
         )
-    return records[0].hashes if records else {}
+    return {
+        "base": next(iter(bases), None),
+        "conditions": {
+            c: {k: next(iter(v)) for k, v in keys.items()}
+            for c, keys in sorted(per_condition.items())
+        },
+    }
 
 
 # Statistics ------------------------------------------------------------------------
@@ -111,53 +137,67 @@ def speedup(pairs: Sequence[tuple[RunRecord, RunRecord]]) -> float:
     return base / cand if cand else 0.0
 
 
-def summarize(records: list[RunRecord]) -> list[dict[str, Any]]:
-    groups: dict[tuple[str, str], list[RunRecord]] = defaultdict(list)
+def summarize(
+    records: list[RunRecord], by_version: bool = False
+) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, ...], list[RunRecord]] = defaultdict(list)
     for record in records:
-        groups[(record.model, record.condition)].append(record)
+        version = record.version if by_version else "all"
+        groups[(record.model, record.condition, version)].append(record)
     rows = []
-    for (model, condition), group in sorted(groups.items()):
+    for key, group in sorted(groups.items()):
         ok = [r for r in group if r.error is None]
         passed = sum(_passed(r) for r in ok)
         tokens = sum(r.usage.total_tokens for r in ok)
         cost = sum(r.usage.cost for r in ok)
+        n = len(ok)
         rows.append(
             {
-                "model": model,
-                "condition": condition,
+                "model": key[0],
+                "condition": key[1],
+                "version": key[2],
                 "runs": len(group),
-                "errors": len(group) - len(ok),
+                "errors": len(group) - n,
                 "quality": round(statistics.fmean(map(_quality, ok)), 4) if ok else 0.0,
-                "pass_rate": round(passed / len(ok), 4) if ok else 0.0,
-                "tool_calls": round(statistics.fmean(len(r.tool_calls) for r in ok), 2)
-                if ok
-                else 0.0,
-                "tokens_mean": round(tokens / len(ok), 1) if ok else 0.0,
-                "tokens_per_correct": round(tokens / passed, 1) if passed else None,
-                "cost_per_correct": round(cost / passed, 6) if passed else None,
-                "latency_s_mean": round(statistics.fmean(r.latency_s for r in ok), 3)
-                if ok
-                else 0.0,
-                "concision": round(
-                    statistics.fmean(
-                        float(r.score["concision"]) for r in ok if r.score
-                    ),
-                    4,
-                )
-                if ok
-                else 0.0,
+                "pass_rate": round(passed / n, 4) if ok else 0.0,
+                "tool_calls": _mean([len(r.tool_calls) for r in ok], 2),
+                "api_calls": _mean([r.usage.api_calls for r in ok], 2),
+                "tokens_mean": _mean([r.usage.total_tokens for r in ok], 0),
+                "input_mean": _mean([r.usage.input_tokens for r in ok], 0),
+                "output_mean": _mean([r.usage.output_tokens for r in ok], 0),
+                "cache_read_mean": _mean([r.usage.cache_read_tokens for r in ok], 0),
+                "tokens_per_correct": round(tokens / passed) if passed else None,
+                "cost_mean": _mean([r.usage.cost for r in ok], 2),
+                "cost_per_correct": round(cost / passed, 4) if passed else None,
+                "latency_s_mean": _mean([r.latency_s for r in ok], 2),
+                "latency_s_p50": round(_percentile([r.latency_s for r in ok], 50), 2),
+                "latency_s_p95": round(_percentile([r.latency_s for r in ok], 95), 2),
+                "concision": _mean(
+                    [float(r.score["concision"]) for r in ok if r.score], 4
+                ),
             }
         )
     return rows
 
 
+def _mean(values: Sequence[float], digits: int) -> float:
+    return round(statistics.fmean(values), digits) if values else 0.0
+
+
+def _percentile(values: Sequence[float], pct: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, round(pct / 100 * (len(ordered) - 1)))]
+
+
 def pair_records(
-    records: list[RunRecord], baseline: str, candidate: str
+    records: list[RunRecord], baseline: str, candidate: str, version: str = "all"
 ) -> dict[str, list[tuple[RunRecord, RunRecord]]]:
     index = {
         (r.model, r.condition, r.case_id, r.epoch): r
         for r in records
-        if r.error is None
+        if r.error is None and version in ("all", r.version)
     }
     pairs: dict[str, list[tuple[RunRecord, RunRecord]]] = defaultdict(list)
     for (model, condition, case_id, epoch), cand in sorted(index.items()):
@@ -170,12 +210,13 @@ def pair_records(
 
 
 def compare(
-    records: list[RunRecord], baseline: str, candidate: str
+    records: list[RunRecord], baseline: str, candidate: str, version: str = "all"
 ) -> list[dict[str, Any]]:
     out = []
-    for model, pairs in pair_records(records, baseline, candidate).items():
+    for model, pairs in pair_records(records, baseline, candidate, version).items():
         row: dict[str, Any] = {
             "model": model,
+            "version": version,
             "baseline": baseline,
             "candidate": candidate,
             "pairs": len(pairs),
@@ -223,27 +264,40 @@ def apply_gates(
     return failures
 
 
-def to_markdown(
-    summary: list[dict[str, Any]], comparisons: list[dict[str, Any]]
-) -> str:
+def _summary_table(rows: list[dict[str, Any]]) -> list[str]:
     lines = [
-        "| model | condition | runs | errors | quality | pass rate | tool calls | "
-        "tokens/run | tokens/correct | cost/correct | latency s |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| model | condition | version | runs | errors | quality | pass rate | "
+        "tool calls | API calls | tokens/run | input/run | output/run | "
+        "tokens/correct | cost/run | latency s (mean / p95) |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
+        "---: | ---: | ---: | ---: |",
     ]
-    for r in summary:
+    for r in rows:
         lines.append(
-            f"| {r['model']} | {r['condition']} | {r['runs']} | {r['errors']} | "
-            f"{r['quality']:.3f} | {r['pass_rate']:.3f} | {r['tool_calls']} | "
-            f"{r['tokens_mean']} | {r['tokens_per_correct']} | {r['cost_per_correct']} "
-            f"| {r['latency_s_mean']} |"
+            f"| {r['model']} | {r['condition']} | {r['version']} | {r['runs']} | "
+            f"{r['errors']} | {r['quality']:.3f} | {r['pass_rate']:.3f} | "
+            f"{r['tool_calls']} | {r['api_calls']} | {r['tokens_mean']:.0f} | "
+            f"{r['input_mean']:.0f} | {r['output_mean']:.0f} | "
+            f"{r['tokens_per_correct']} | {r['cost_mean']} | "
+            f"{r['latency_s_mean']} / {r['latency_s_p95']} |"
         )
+    return lines
+
+
+def to_markdown(
+    summary: list[dict[str, Any]],
+    comparisons: list[dict[str, Any]],
+    by_version: list[dict[str, Any]] | None = None,
+) -> str:
+    lines = _summary_table(summary)
+    if by_version:
+        lines += ["", *_summary_table(by_version)]
     if comparisons:
         lines += [
             "",
-            "| model | candidate vs baseline | pairs | quality delta (95% CI) | "
-            "token reduction (95% CI) | speedup (95% CI) |",
-            "| --- | --- | ---: | --- | --- | --- |",
+            "| model | version | candidate vs baseline | pairs | "
+            "quality delta (95% CI) | token reduction (95% CI) | speedup (95% CI) |",
+            "| --- | --- | --- | ---: | --- | --- | --- |",
         ]
         for c in comparisons:
             cells = [
@@ -251,8 +305,8 @@ def to_markdown(
                 for k in ("quality_delta", "token_reduction", "speedup")
             ]
             lines.append(
-                f"| {c['model']} | {c['candidate']} vs {c['baseline']} | {c['pairs']} "
-                "| " + " | ".join(cells) + " |"
+                f"| {c['model']} | {c['version']} | {c['candidate']} vs "
+                f"{c['baseline']} | {c['pairs']} | " + " | ".join(cells) + " |"
             )
     return "\n".join(lines)
 
@@ -281,24 +335,34 @@ def main(argv: list[str] | None = None) -> int:
     if not records:
         print("no records found", file=sys.stderr)
         return 1
+    records = latest_records(records)
     try:
         if args.rescore:
             cases = {c.id: c for c in load_cases(args.cases)}
-            rescore(records, cases, benchmark_hash(args.cases))
+            rescore(records, cases)
         hashes = check_compatible(records)
     except ReportError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     summary = summarize(records)
+    by_version = summarize(records, by_version=True)
     comparisons = compare(records, args.baseline, args.candidate)
-    print(to_markdown(summary, comparisons))
+    versions = sorted({r.version for r in records})
+    per_version = [
+        row
+        for version in versions
+        for row in compare(records, args.baseline, args.candidate, version)
+    ]
+    print(to_markdown(summary, comparisons + per_version, by_version))
     if args.json_output:
         payload = {
             "hashes": hashes,
             "scorer_version": SCORER_VERSION,
             "bootstrap": {"samples": BOOTSTRAP_SAMPLES, "seed": BOOTSTRAP_SEED},
             "summary": summary,
+            "summary_by_version": by_version,
             "comparisons": comparisons,
+            "comparisons_by_version": per_version,
         }
         args.json_output.write_text(json.dumps(payload, indent=2) + "\n", "utf-8")
     failures = apply_gates(comparisons, args)

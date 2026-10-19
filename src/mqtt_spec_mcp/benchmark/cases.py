@@ -19,24 +19,31 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mqtt_spec_mcp.server import MqttSpecService
-from mqtt_spec_mcp.versions import VersionId
+from mqtt_spec_mcp.versions import VersionId, as_version
 
 from .scorer import fold, score_answer
 
-Category = Literal["lookup", "normative", "applied", "synthesis", "edge"]
-CATEGORY_TARGETS: dict[Category, int] = {
-    "lookup": 35,
-    "normative": 30,
-    "applied": 25,
-    "synthesis": 15,
-    "edge": 15,
+Scope = Literal["3.1.1", "5.0", "both"]
+Category = Literal["lookup", "normative", "applied", "synthesis", "edge", "compare"]
+# Each scope lives in its own bundled file and has its own required mix.
+CATEGORY_TARGETS: dict[str, dict[str, int]] = {
+    "5.0": {"lookup": 35, "normative": 30, "applied": 25, "synthesis": 15, "edge": 15},
+    "3.1.1": {"lookup": 18, "normative": 15, "applied": 12, "synthesis": 8, "edge": 7},
+    "both": {"compare": 20},
 }
-CASE_VERSION: VersionId = "5.0"
-CASES_FILE = "cases-v5.0.jsonl"
+CASE_FILES: dict[str, str] = {
+    "5.0": "cases-v5.0.jsonl",
+    "3.1.1": "cases-v3.1.1.jsonl",
+    "both": "cases-compare.jsonl",
+}
 DEFAULT_WORD_LIMIT = 180
 COPY_SHINGLE = 8
 CASE_ID = r"^[a-z0-9]+(?:-[a-z0-9]+)+$"
 SECTION = r"^\d+(?:\.\d+)*$"
+# A section reference, optionally qualified by version: "3.1.2.4" or "3.1.1:3.1.2.4".
+SECTION_REF = r"^(?:(?:3\.1\.1|5\.0):)?\d+(?:\.\d+)*$"
+_MENTIONS_311 = re.compile(r"3\.1\.1")
+_MENTIONS_50 = re.compile(r"\b5(?:\.0)?\b")
 
 # Scenarios exercised by the unit tests; benchmark cases must not reuse them.
 ACCEPTANCE_QUERIES = frozenset(
@@ -49,24 +56,48 @@ ACCEPTANCE_QUERIES = frozenset(
         "session",
         "mqtt 5.0 session",
         "session in mqtt 5.0.",
+        "clean session",
+        "keep alive",
     }
 )
-ACCEPTANCE_LOOKUPS = frozenset(
-    {
-        ("packet", "connect", None),
-        ("property", "0x11", "connect"),
-        ("property", "interval", None),
-        ("property", "reason string", "publish"),
-        ("property", "will flag", None),
-        ("reason_code", "0x00", "suback"),
-        ("reason_code", "unsuback", None),
-        ("reason_code", "0x99", "publish"),
-        ("requirement", "[mqtt-3.1.2-23]", None),
-        ("requirement", "mqtt-3.1.2-23", None),
-        ("term", "session", None),
-        ("term", "packet identifier", None),
-    }
-)
+ACCEPTANCE_LOOKUPS: dict[str, frozenset[tuple[str, str, str | None]]] = {
+    "5.0": frozenset(
+        {
+            ("packet", "connect", None),
+            ("property", "0x11", "connect"),
+            ("property", "interval", None),
+            ("property", "reason string", "publish"),
+            ("property", "will flag", None),
+            ("reason_code", "0x00", "suback"),
+            ("reason_code", "unsuback", None),
+            ("reason_code", "0x99", "publish"),
+            ("requirement", "[mqtt-3.1.2-23]", None),
+            ("requirement", "mqtt-3.1.2-23", None),
+            ("requirement", "mqtt-3.1.2-4", None),
+            ("term", "session", None),
+            ("term", "packet identifier", None),
+        }
+    ),
+    "3.1.1": frozenset(
+        {
+            ("packet", "auth", None),
+            ("packet", "15", None),
+            ("packet", "connack", None),
+            ("packet", "publish", None),
+            ("return_code", "0x80", "suback"),
+            ("return_code", "0x80", "connack"),
+            ("return_code", "0", "connack"),
+            ("return_code", "0", "suback"),
+            ("return_code", "1", "connack"),
+            ("term", "shared subscription", None),
+            ("requirement", "mqtt-3.1.2-4", None),
+            ("requirement", "[ mqtt-3 .1.2-5]", None),
+            ("requirement", "mqtt-3.3.1.-1", None),
+            ("requirement", "mqtt-3.1.2.7", None),
+            ("requirement", "mqtt-3-8.3-4", None),
+        }
+    ),
+}
 
 
 class _Strict(BaseModel):
@@ -78,6 +109,8 @@ class FactPattern(_Strict):
     any: Annotated[tuple[str, ...], Field(min_length=1)]
     polarity: Literal["affirm", "negate"] = "affirm"
     section: Annotated[str, Field(pattern=SECTION)]
+    # Required in "both" (comparison) cases; otherwise the case's version.
+    version: VersionId | None = None
 
 
 class ForbiddenClaim(_Strict):
@@ -85,38 +118,68 @@ class ForbiddenClaim(_Strict):
     any: Annotated[tuple[str, ...], Field(min_length=1)]
     note: Annotated[str, Field(min_length=1)]
     section: Annotated[str, Field(pattern=SECTION)]
+    version: VersionId | None = None
 
 
 class LookupExpectation(_Strict):
-    kind: Literal["packet", "property", "reason_code", "requirement", "term"]
+    kind: Literal[
+        "packet", "property", "reason_code", "return_code", "requirement", "term"
+    ]
     query: Annotated[str, Field(min_length=1)]
     packet: str | None = None
     expect: dict[str, str | int]
+    version: VersionId | None = None
+
+
+SectionRef = Annotated[str, Field(pattern=SECTION_REF)]
 
 
 class Case(_Strict):
     id: Annotated[str, Field(pattern=CASE_ID)]
+    version: Scope
     category: Category
     prompt: Annotated[str, Field(min_length=10)]
     facts: Annotated[tuple[FactPattern, ...], Field(min_length=1)]
     citations: Annotated[
-        tuple[
-            Annotated[
-                tuple[Annotated[str, Field(pattern=SECTION)], ...], Field(min_length=1)
-            ],
-            ...,
-        ],
+        tuple[Annotated[tuple[SectionRef, ...], Field(min_length=1)], ...],
         Field(min_length=1),
     ]
     forbidden: tuple[ForbiddenClaim, ...] = ()
     search_query: Annotated[str, Field(min_length=2)]
-    relevant_sections: Annotated[
-        tuple[Annotated[str, Field(pattern=SECTION)], ...], Field(min_length=1)
-    ]
+    relevant_sections: Annotated[tuple[SectionRef, ...], Field(min_length=1)]
     lookup: LookupExpectation | None = None
     word_limit: Annotated[int, Field(ge=40, le=400)] = DEFAULT_WORD_LIMIT
     provenance: Annotated[str, Field(min_length=10)]
     reference_answer: Annotated[str, Field(min_length=10)]
+
+    @property
+    def versions(self) -> tuple[VersionId, ...]:
+        """The MQTT versions this case is about."""
+        if self.version == "both":
+            return ("3.1.1", "5.0")
+        return (self.version,)
+
+
+def split_ref(ref: str, default: VersionId | None) -> tuple[VersionId | None, str]:
+    """Split "3.1.1:3.1.2.4" into its version and section ("3.1.2.4" -> default)."""
+    if ":" in ref:
+        version, section = ref.split(":", 1)
+        return (as_version(version), section)
+    return (default, ref)
+
+
+def section_refs(case: Case, refs: Iterable[str]) -> list[tuple[VersionId, str]]:
+    """Version-qualified section references; unqualified refs in a "both" case are
+    returned against both versions."""
+    out: list[tuple[VersionId, str]] = []
+    default = None if case.version == "both" else as_version(case.version)
+    for ref in refs:
+        version, section = split_ref(ref, default)
+        if version is None:
+            out.extend((v, section) for v in case.versions)
+        else:
+            out.append((version, section))
+    return out
 
 
 def parse_cases(lines: Iterable[str], source: str = "<cases>") -> list[Case]:
@@ -134,19 +197,29 @@ def parse_cases(lines: Iterable[str], source: str = "<cases>") -> list[Case]:
     return cases
 
 
-def bundled_cases_path() -> Path:
-    return Path(
-        str(
-            resources.files("mqtt_spec_mcp.benchmark")
-            .joinpath("data")
-            .joinpath(CASES_FILE)
-        )
-    )
+def bundled_case_paths() -> list[Path]:
+    data = resources.files("mqtt_spec_mcp.benchmark").joinpath("data")
+    return [Path(str(data.joinpath(name))) for name in CASE_FILES.values()]
 
 
-def load_cases(path: Path | None = None) -> list[Case]:
-    target = path or bundled_cases_path()
-    return parse_cases(target.read_text("utf-8").splitlines(), str(target))
+def load_cases(
+    path: Path | None = None, versions: Iterable[str] | None = None
+) -> list[Case]:
+    """Load one file, or every bundled file; optionally keep only some scopes."""
+    paths = [path] if path is not None else bundled_case_paths()
+    cases: list[Case] = []
+    for target in paths:
+        if path is None and not target.exists():
+            continue
+        cases.extend(parse_cases(target.read_text("utf-8").splitlines(), str(target)))
+    # Runs, hashes and reports are keyed by case id, across all files.
+    duplicates = sorted(k for k, n in Counter(c.id for c in cases).items() if n > 1)
+    if duplicates:
+        raise ValueError(f"duplicate benchmark case ids: {', '.join(duplicates)}")
+    if versions is not None:
+        wanted = set(versions)
+        cases = [c for c in cases if c.version in wanted]
+    return cases
 
 
 def _shingles(text: str, size: int) -> set[tuple[str, ...]]:
@@ -161,9 +234,19 @@ def _lookup_matches(result: dict[str, Any], expect: dict[str, str | int]) -> boo
     return all(target.get(key) == value for key, value in expect.items())
 
 
-def run_lookup(service: Any, expectation: LookupExpectation) -> tuple[bool, str]:
+def lookup_version(case: Case) -> VersionId | None:
+    if case.lookup is None:
+        return None
+    if case.lookup.version is not None:
+        return case.lookup.version
+    return None if case.version == "both" else as_version(case.version)
+
+
+def run_lookup(
+    service: Any, expectation: LookupExpectation, version: VersionId
+) -> tuple[bool, str]:
     args: dict[str, Any] = {
-        "version": CASE_VERSION,
+        "version": version,
         "kind": expectation.kind,
         "query": expectation.query,
     }
@@ -175,13 +258,51 @@ def run_lookup(service: Any, expectation: LookupExpectation) -> tuple[bool, str]
     return _lookup_matches(json.loads(outcome.text), expectation.expect), outcome.text
 
 
-def validate_cases(cases: Sequence[Case], *, partial: bool = False) -> list[str]:
+def _check_versions(case: Case) -> list[str]:
+    where = f"case {case.id}"
+    problems: list[str] = []
+    items: list[tuple[str, VersionId | None]] = [
+        *((f"fact {f.id}", f.version) for f in case.facts),
+        *((f"forbidden {f.id}", f.version) for f in case.forbidden),
+    ]
+    if case.lookup is not None:
+        items.append(("lookup", case.lookup.version))
+    for label, version in items:
+        if case.version == "both" and version is None:
+            problems.append(f"{where}: {label} needs a version in a comparison case")
+        if case.version != "both" and version not in (None, case.version):
+            problems.append(f"{where}: {label} names version {version}")
+    refs = [*case.relevant_sections, *(r for g in case.citations for r in g)]
+    for ref in refs:
+        version, _ = split_ref(ref, None)
+        if case.version == "both" and version is None:
+            problems.append(f"{where}: section {ref} needs a version prefix")
+        if case.version != "both" and version not in (None, case.version):
+            problems.append(f"{where}: section {ref} is from another version")
+    if case.version == "both" and not (
+        _MENTIONS_311.search(case.prompt) and _MENTIONS_50.search(case.prompt)
+    ):
+        problems.append(f"{where}: a comparison prompt must name both versions")
+    if case.version == "both" and case.category != "compare":
+        problems.append(f"{where}: comparison cases use category 'compare'")
+    if case.version != "both" and case.category == "compare":
+        problems.append(f"{where}: category 'compare' needs version 'both'")
+    return problems
+
+
+def validate_cases(
+    cases: Sequence[Case],
+    *,
+    partial: bool = False,
+    require_scopes: Iterable[str] = (),
+) -> list[str]:
     """Return a list of problems; empty means the corpus is valid."""
-    service = MqttSpecService([CASE_VERSION])
-    engine = service.engines[CASE_VERSION]
-    sections = engine.sections
-    spec_text = "\n".join(f"{s.title}\n{s.body}" for s in engine.ordered)
-    spec_shingles = _shingles(spec_text, COPY_SHINGLE)
+    service = MqttSpecService()
+    engines = service.engines
+    spec_shingles: set[tuple[str, ...]] = set()
+    for engine in engines.values():
+        text = "\n".join(f"{s.title}\n{s.body}" for s in engine.ordered)
+        spec_shingles |= _shingles(text, COPY_SHINGLE)
     problems: list[str] = []
 
     for dup, n in Counter(c.id for c in cases).items():
@@ -189,16 +310,23 @@ def validate_cases(cases: Sequence[Case], *, partial: bool = False) -> list[str]
             problems.append(f"duplicate case id {dup}")
     for case in cases:
         where = f"case {case.id}"
-        referenced = {
-            *(s for group in case.citations for s in group),
-            *case.relevant_sections,
-            *(f.section for f in case.facts),
-            *(f.section for f in case.forbidden),
-        }
-        for section in sorted(referenced):
-            if section not in sections:
-                problems.append(f"{where}: unknown section {section}")
+        problems.extend(_check_versions(case))
+        default = None if case.version == "both" else as_version(case.version)
+        referenced = section_refs(
+            case,
+            [*(s for group in case.citations for s in group), *case.relevant_sections],
+        )
+        referenced += [(f.version or default or "5.0", f.section) for f in case.facts]
+        referenced += [
+            (f.version or default or "5.0", f.section) for f in case.forbidden
+        ]
+        for ref_version, section in sorted(set(referenced)):
+            if section not in engines[ref_version].sections:
+                problems.append(
+                    f"{where}: unknown MQTT {ref_version} section {section}"
+                )
         for fact in case.facts:
+            version = fact.version or default
             if fact.section not in case.provenance:
                 problems.append(f"{where}: provenance does not name {fact.section}")
             for pattern in fact.any:
@@ -206,8 +334,8 @@ def validate_cases(cases: Sequence[Case], *, partial: bool = False) -> list[str]
                     re.compile(pattern)
                 except re.error as exc:
                     problems.append(f"{where}: bad regex {pattern!r}: {exc}")
-            if fact.section in sections:
-                info = sections[fact.section]
+            if version is not None and fact.section in engines[version].sections:
+                info = engines[version].sections[fact.section]
                 grounding = fold(f"{info.title}\n{info.body}")
                 if not any(
                     re.search(p, grounding, re.IGNORECASE)
@@ -215,8 +343,9 @@ def validate_cases(cases: Sequence[Case], *, partial: bool = False) -> list[str]
                     if _compiles(p)
                 ):
                     problems.append(
-                        f"{where}: fact {fact.id} is not checkable against "
-                        f"section {fact.section} (no alternative matches its text)"
+                        f"{where}: fact {fact.id} is not checkable against MQTT "
+                        f"{version} section {fact.section} (no alternative matches "
+                        "its text)"
                     )
         for claim in case.forbidden:
             for pattern in claim.any:
@@ -230,15 +359,16 @@ def validate_cases(cases: Sequence[Case], *, partial: bool = False) -> list[str]
                 problems.append(f"{where}: {label} copies spec text verbatim")
         if " ".join(case.search_query.lower().split()) in ACCEPTANCE_QUERIES:
             problems.append(f"{where}: search_query reuses a unit-test query")
-        if case.lookup is not None:
+        lookup_in = lookup_version(case)
+        if case.lookup is not None and lookup_in is not None:
             key = (
                 case.lookup.kind,
                 case.lookup.query.strip().lower(),
                 case.lookup.packet.strip().lower() if case.lookup.packet else None,
             )
-            if key in ACCEPTANCE_LOOKUPS:
+            if key in ACCEPTANCE_LOOKUPS[lookup_in]:
                 problems.append(f"{where}: lookup reuses a unit-test scenario")
-            ok, detail = run_lookup(service, case.lookup)
+            ok, detail = run_lookup(service, case.lookup, lookup_in)
             if not ok:
                 problems.append(f"{where}: lookup expectation failed: {detail[:200]}")
         try:
@@ -257,26 +387,52 @@ def validate_cases(cases: Sequence[Case], *, partial: bool = False) -> list[str]
 
     if partial:
         return problems
-    counts = Counter(c.category for c in cases)
-    for category, want in CATEGORY_TARGETS.items():
-        if counts[category] != want:
-            problems.append(
-                f"expected {want} {category} cases, found {counts[category]}"
-            )
-    covered = {s for c in cases for group in c.citations for s in group}
-    covered |= {s for c in cases for s in c.relevant_sections}
-    chapters = {s.split(".")[0] for s in covered}
-    for chapter in map(str, range(1, 8)):
-        if chapter not in chapters:
-            problems.append(f"no case covers chapter {chapter}")
+    scopes = {c.version for c in cases} | set(require_scopes)
+    for scope in sorted(scopes):
+        group = [c for c in cases if c.version == scope]
+        problems.extend(_check_mix(scope, group))
+        if scope != "both":
+            version_id = as_version(scope)
+            problems.extend(_check_coverage(version_id, group, engines[version_id]))
+    return problems
+
+
+def _check_mix(scope: str, cases: Sequence[Case]) -> list[str]:
+    counts: Counter[str] = Counter(c.category for c in cases)
+    targets = CATEGORY_TARGETS[scope]
+    problems = [
+        f"MQTT {scope}: expected {want} {category} cases, found {counts[category]}"
+        for category, want in targets.items()
+        if counts[category] != want
+    ]
+    problems.extend(
+        f"MQTT {scope}: unexpected category {category}"
+        for category in counts
+        if category not in targets
+    )
+    return problems
+
+
+def _check_coverage(
+    version: VersionId, cases: Sequence[Case], engine: Any
+) -> list[str]:
+    covered: set[str] = set()
+    for case in cases:
+        refs = [*(s for g in case.citations for s in g), *case.relevant_sections]
+        covered |= {section for _, section in section_refs(case, refs)}
+    problems = [
+        f"MQTT {version}: no case covers chapter {chapter}"
+        for chapter in map(str, range(1, 8))
+        if chapter not in {s.split(".")[0] for s in covered}
+    ]
     packets = {
         int(s.split(".")[1]) for s in covered if s.startswith("3.") and s.count(".")
     }
-    for packet in engine.packets:
-        if packet.value not in packets:
-            problems.append(
-                f"no case covers packet {packet.name} (section {packet.section})"
-            )
+    problems.extend(
+        f"MQTT {version}: no case covers packet {p.name} (section {p.section})"
+        for p in engine.packets
+        if p.value not in packets
+    )
     return problems
 
 
@@ -302,10 +458,11 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(exc, file=sys.stderr)
         return 1
-    problems = validate_cases(cases, partial=args.partial)
+    scopes = CATEGORY_TARGETS if args.path is None and not args.partial else ()
+    problems = validate_cases(cases, partial=args.partial, require_scopes=scopes)
     for problem in problems:
         print(problem)
-    counts = Counter(c.category for c in cases)
+    counts = Counter(f"{c.version}/{c.category}" for c in cases)
     print(
         f"{len(cases)} cases {dict(sorted(counts.items()))}; {len(problems)} problems"
     )

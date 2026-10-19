@@ -122,10 +122,12 @@ call with version 3.1.1 returns 14.
 ```
 
 The first result has a long snippet (about 1,600 characters), often enough to answer
-on its own, plus a `parent_context` snippet. Later results have short snippets (about
-320 characters). `requirements` lists the labels in each snippet, and `best_section`
-and `next_step` say what to do next. A query can be prose, a section id (`3.1.2.4`)
-or a requirement label (`MQTT-3.1.2-23`).
+on its own, plus a `parent_context` snippet. Later results share about 1,280
+characters (about 640 each at the default limit of 3, 320 each at limit 5). Snippets of longer sections are made of the sentences that match the
+query best, each with a neighbouring sentence for context, in document order, with
+`...` marking every cut. `requirements` lists the labels in each snippet, and
+`best_section` and `next_step` say what to do next. A query can be prose, a section
+id (`3.1.2.4`) or a requirement label (`MQTT-3.1.2-23`).
 
 ### `mqtt_spec_get`
 
@@ -193,9 +195,11 @@ The server sends these instructions to clients. In short:
 
 ## Recommended workflow
 
-1. Pick one starting tool. Use `mqtt_spec_lookup` only for one exact, recognized
-   entity; use a single combined `mqtt_spec_search` for everything else.
-2. If the lookup result or the first search snippet contains the facts, answer.
+1. Consult the tools before answering; pick one starting tool. Use
+   `mqtt_spec_lookup` only for one exact, recognized entity; use a single combined
+   `mqtt_spec_search` for everything else.
+2. If the lookup result or the search snippets state every fact the question asks
+   for, answer. Snippets are partial excerpts.
 3. Otherwise call `mqtt_spec_get` once for `best_section`, and follow cursors only
    if needed. Use `mqtt_spec_outline` only to browse or resolve ambiguity.
 4. Keep MUST/SHOULD/MAY and every condition and exception, and cite sections.
@@ -239,11 +243,18 @@ Install the extra (Inspect AI and the GitHub Copilot SDK need Python 3.11 or new
 uv sync --extra benchmark
 ```
 
-The case corpus (`src/mqtt_spec_mcp/benchmark/data/cases-v5.0.jsonl`) has 120 MQTT
-5.0 questions: 35 lookup, 30 normative, 25 applied, 15 synthesis and 15 edge.
-Together they cover all seven chapters and all 15 packets. See
-[benchmarks/AUTHORING.md](benchmarks/AUTHORING.md) for how the cases were written and
-reviewed.
+The case corpus has 200 questions in three files under
+`src/mqtt_spec_mcp/benchmark/data/`:
+
+| File | Version | Cases | Mix |
+| --- | --- | ---: | --- |
+| `cases-v5.0.jsonl` | 5.0 | 120 | 35 lookup, 30 normative, 25 applied, 15 synthesis, 15 edge |
+| `cases-v3.1.1.jsonl` | 3.1.1 | 60 | 18 lookup, 15 normative, 12 applied, 8 synthesis, 7 edge |
+| `cases-compare.jsonl` | both | 20 | questions about how the two versions differ or agree |
+
+The single-version sets each cover all seven chapters and every control packet of
+their version. See [benchmarks/AUTHORING.md](benchmarks/AUTHORING.md) for how the
+cases were written and reviewed.
 
 ```bash
 # Validate the corpus (schema, grounding, coverage, reference answers)
@@ -256,38 +267,58 @@ uv run mqtt-spec-bench-retrieval --min-recall-at-1 0.70 --min-recall-at-5 0.60 \
 # Sizes, o200k_base token counts, latency, stdio cold start
 uv run mqtt-spec-bench-micro
 
-# Agent benchmark with the GitHub Copilot SDK (fresh session per case and condition)
-uv run mqtt-spec-bench-copilot --model gpt-5 --epochs 1 --output benchmarks/runs/copilot.jsonl
+# Agent benchmark with the GitHub Copilot SDK: a fresh session per case and
+# condition, several sessions at once. Re-running the same command resumes: it
+# retries failures and re-runs anything whose question, prompt or reference
+# material (for mcp, the server) changed since the stored result.
+uv run mqtt-spec-bench-copilot --model claude-sonnet-5 --concurrency 6 \
+    --output benchmarks/runs/copilot.jsonl
+uv run mqtt-spec-bench-copilot --model claude-sonnet-5 --sample 20 --versions 3.1.1 \
+    --output benchmarks/runs/pilot.jsonl          # a seeded, stratified pilot
 
 # ... or with Inspect AI (tasks registered as mqtt_spec_mcp/<task>)
-uv run inspect eval mqtt_spec_mcp/mqtt5_mcp --model openai/gpt-5
-uv run inspect eval mqtt_spec_mcp/mqtt5_reference -T condition=full_spec
+uv run inspect eval mqtt_spec_mcp/mqtt_mcp --model openai/gpt-5
+uv run inspect eval mqtt_spec_mcp/mqtt_reference -T condition=full_spec -T versions=3.1.1
 
-# Paired report with bootstrap 95% CIs and optional release gates
+# Paired report (overall and per version) with bootstrap 95% CIs and release gates
 uv run mqtt-spec-bench-report benchmarks/runs/copilot.jsonl \
     --gate-quality-regression 0.02 --gate-token-reduction 0.50 --gate-speedup 1.20
 uv run mqtt-spec-bench-report --inspect-log logs/<file>.eval --rescore
 ```
 
-Current retrieval baseline on the 120 cases: Recall@1 0.78, Recall@3 0.59, Recall@5
-0.65, hit rate 0.96, MRR 0.86, lookup success 1.00, p95 latency about 5 ms. The CI
-gate thresholds sit below this baseline. Recall@k divides by
-min(|relevant|, k), and cases list about three relevant sections on average, often in
-different chapters, so Recall@3 and Recall@5 are stricter than the hit rate.
+Current retrieval baseline on the 200 cases (220 queries, since each comparison case
+is ranked once per version): Recall@1 0.80, Recall@3 0.60, Recall@5 0.67, hit rate
+0.97, MRR 0.87, lookup success 1.00, p95 latency under 10 ms. Per version, 3.1.1 has
+Recall@1 0.80 / MRR 0.87 and 5.0 has Recall@1 0.79 / MRR 0.87. The CI gate thresholds
+sit below this baseline. Recall@k divides by min(|relevant|, k), and cases list about
+three relevant sections on average, often in different chapters, so Recall@3 and
+Recall@5 are stricter than the hit rate.
 
 The agent benchmark compares four conditions that share the same cases, base
-prompt, loop and 12-call tool budget:
+prompt, loop and 12-call tool budget. Each condition reaches the same material, the
+specification(s) the question is about:
 
 - `none`: no reference material.
-- `full_spec`: the whole 5.0 text in the system prompt.
-- `grep`: a generic line search plus an 80-line reader with no MQTT catalogs.
-- `mcp`: this server's tools, pinned to 5.0.
+- `full_spec`: the whole text of the relevant specification(s) in the system prompt.
+- `grep`: a generic line search plus an 80-line reader over that text, with no
+  MQTT catalogs.
+- `mcp`: this server's tools, loaded with only the relevant version(s); comparison
+  questions get both versions and must keep them apart.
+
+Single-version questions are sent labelled with their version (`[MQTT 3.1.1] …`), as
+a user of a multi-version tool would ask them; comparison questions name both.
 
 Scoring is deterministic: `quality = clamp(0.8 × fact recall + 0.2 × citation recall −
 violation rate, 0, 1)`. A run passes only with every fact, every citation group and
-no forbidden claim. Every result records hashes of the prompts, the benchmark
-definition and the server definition, and the report refuses to compare runs whose
-hashes differ. Use `--rescore` to apply a newer scorer to stored answers offline.
+no forbidden claim. Answers are normalized before matching (markdown emphasis
+removed, heading-only lines joined to their paragraph), and a negation only cancels
+a fact within its own clause. Every result records hashes of the shared
+instructions, the condition's prompt and reference material (for `mcp`, the server:
+tools, instructions, code and indexes), and the question asked. The report refuses
+to compare runs whose hashes conflict, but one condition can be re-run after a
+change and compared against stored results for the others. Answer keys are not part
+of the question hash: use `--rescore` to apply corrected keys or a newer scorer to
+stored answers offline.
 
 ## Development
 

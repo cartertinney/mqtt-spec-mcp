@@ -1,101 +1,91 @@
 # Agent benchmark results: Claude Sonnet 5, 2026-10-19
 
 - **Runner:** GitHub Copilot SDK (`mqtt-spec-bench-copilot`), model `claude-sonnet-5`,
-  one fresh session per run, 6 sessions at a time, 1 epoch, seed 20261016.
+  one fresh session per run, seed 20261016.
 - **Corpus:** 200 cases (120 MQTT 5.0, 60 MQTT 3.1.1, 20 comparisons); see
   [AUTHORING.md](../AUTHORING.md).
-- **Scoring:** scorer 1.3.1, rescored offline with the final answer keys
-  (`mqtt-spec-bench-report --rescore`).
-- **Server:** the `mcp` condition ran against commit 941005a (passage snippets,
-  640-character later snippets, current guidance). An earlier `mcp` run against the
-  previous server is compared below.
-- **Usage:** 800 runs plus 200 `mcp` re-runs and 12 re-runs of three comparison
-  questions whose wording was corrected; 2,005 premium requests. No run errored.
+- **Scoring:** scorer 1.3.1 with the final answer keys; every stored answer was
+  rescored offline (`mqtt-spec-bench-report --rescore`).
+- **Usage:** 1,812 runs, 3,722 premium requests, no errored runs.
 
-## All cases
+## Same-time comparison with the current server (evening pass)
 
-| condition | quality | pass rate | tool calls | model calls | tokens/run | latency s (mean / p95) | premium requests/run |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `full_spec` | 0.996 | 0.970 | 0.00 | 1.00 | 90,445 | 7.27 / 12.39 | 1.00 |
-| `grep` | 0.976 | 0.885 | 2.27 | 2.98 | 9,180 | 9.44 / 15.52 | 2.98 |
-| `mcp` | 0.968 | 0.860 | 1.61 | 2.37 | 10,644 | 8.96 / 14.78 | 2.37 |
-| `none` | 0.879 | 0.600 | 0.00 | 1.00 | 1,000 | 8.26 / 16.72 | 1.00 |
+`full_spec`, `grep` and `mcp` (server at commit 4f35851: four results per search,
+query-focused passages, short tool text) were run side by side in the early
+evening, 17:15-17:36 ET (epoch 1; `mqtt-spec-bench-report --rescore --epoch 1`).
+`none` ran only in the midday pass and is shown from there.
 
-## By version
+| condition | quality | pass rate | tokens/question | cost-weighted tokens | model calls | latency s |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `full_spec` | 0.979 | 0.910 | 90,426 | 21,076 | 1.00 | 7.08 |
+| `grep` | 0.949 | 0.795 | 8,971 | 7,678 | 2.91 | 9.54 |
+| `mcp` | 0.952 | 0.745 | 9,723 | 7,013 | 2.33 | 8.62 |
+| `none` (midday) | 0.879 | 0.600 | 1,000 | 3,351 | 1.00 | 8.26 |
 
-| version | condition | quality | pass rate | tokens/run | latency s (mean) |
-| --- | --- | ---: | ---: | ---: | ---: |
-| 5.0 (120) | `full_spec` | 0.997 | 0.983 | 99,909 | 6.86 |
-| 5.0 (120) | `grep` | 0.978 | 0.917 | 8,163 | 8.65 |
-| 5.0 (120) | `mcp` | 0.967 | 0.875 | 10,692 | 8.48 |
-| 5.0 (120) | `none` | 0.883 | 0.625 | 967 | 8.06 |
-| 3.1.1 (60) | `full_spec` | 0.997 | 0.967 | 51,388 | 6.58 |
-| 3.1.1 (60) | `grep` | 0.980 | 0.900 | 9,247 | 9.70 |
-| 3.1.1 (60) | `mcp` | 0.975 | 0.883 | 10,022 | 8.79 |
-| 3.1.1 (60) | `none` | 0.865 | 0.567 | 1,021 | 8.24 |
-| both (20) | `full_spec` | 0.982 | 0.900 | 150,836 | 11.78 |
-| both (20) | `grep` | 0.944 | 0.650 | 15,077 | 13.41 |
-| both (20) | `mcp` | 0.952 | 0.700 | 12,221 | 12.31 |
-| both (20) | `none` | 0.901 | 0.550 | 1,143 | 9.51 |
+Cost-weighted tokens count cache reads at 0.1, cache writes at 1.25 and output at 5
+times an uncached input token, the usual ratios of Anthropic's prices; most of each
+`mcp` and `full_spec` call is a cached prefix.
 
-## `mcp` against `full_spec` (paired, bootstrap 95% CI)
+| version | `mcp` quality | `grep` quality | `full_spec` quality | `mcp` tokens | `grep` tokens | `full_spec` tokens |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 5.0 (120) | 0.953 | 0.952 | 0.983 | 9,418 | 7,904 | 99,879 |
+| 3.1.1 (60) | 0.969 | 0.971 | 0.988 | 9,928 | 8,972 | 51,387 |
+| both (20) | 0.891 | 0.865 | 0.926 | 10,938 | 15,370 | 150,821 |
 
-| version | pairs | quality delta | token reduction | speedup |
-| --- | ---: | --- | --- | --- |
-| all | 200 | -0.028 [-0.043, -0.014] | 0.882 [0.873, 0.891] | 0.81 [0.78, 0.84] |
-| 3.1.1 | 60 | -0.022 [-0.047, -0.003] | 0.805 [0.784, 0.823] | 0.75 [0.71, 0.80] |
-| 5.0 | 120 | -0.030 [-0.052, -0.013] | 0.893 [0.882, 0.902] | 0.81 [0.77, 0.85] |
-| both | 20 | -0.030 [-0.073, 0.014] | 0.919 [0.903, 0.931] | 0.96 [0.88, 1.04] |
+Paired by case, bootstrap 95% CI:
 
-Release gates (`--gate-quality-regression 0.02 --gate-token-reduction 0.50
---gate-speedup 1.20`): token reduction passes; quality and speed fail.
+| comparison | quality delta | token reduction | speedup |
+| --- | --- | --- | --- |
+| `mcp` vs `full_spec` | -0.027 [-0.042, -0.013] | 0.893 [0.884, 0.900] | 0.82 [0.79, 0.86] |
+| `mcp` vs `grep` | +0.003 [-0.016, +0.022] | -0.084 [-0.210, +0.027] | 1.11 [1.07, 1.15] |
+
+Release gates for `mcp` vs `full_spec` (quality regression at most 0.02, token
+reduction at least 0.50, speedup at least 1.20): token reduction passes; quality and
+speed fail.
 
 ## Findings
 
-- **Tokens:** `mcp` reads about 10,600 tokens per question against about 90,400 with
-  the whole specification in the prompt: 80% less for 3.1.1, 89% less for 5.0 and
-  92% less for comparisons, which need both specifications in the prompt.
-- **Quality:** `mcp` is close to `full_spec` but measurably below it: 2.8 points of
-  quality and 11 points of pass rate. In the 26 cases where `mcp` failed and
-  `full_spec` passed, 14 missing facts and most of the 17 missing citation groups
-  were in text the model never read, usually a second relevant section (for
-  example 3.3.4 PUBLISH Actions for Topic Alias errors, 3.1.2.11.9 for enhanced
-  authentication). Only 2 missing facts were in evidence the model had read, and
-  one answer used no tool.
-- **Speed and premium requests:** `full_spec` answers in one model call and, with a
-  constant system prompt, 90% of its input tokens were cache reads, so it was the
-  fastest condition. `mcp` needs a tool round trip (2.37 model calls per question),
-  so it takes about 23% longer (speedup 0.81) and, where billing is per model call
-  (Copilot premium requests), costs 2.4 times as many requests per question despite
-  the token reduction. An uncached first question with the whole specification costs
-  far more input processing than these numbers show.
-- **Generic grep is as good:** a plain line search and reader over the same text
-  scored 0.976 with slightly fewer tokens than `mcp`, at the cost of more calls.
-  The MCP server's advantages over it are version isolation, exact catalogs and
-  section-aware citations, not raw accuracy on these questions.
-- **Without reference material** the model still scores 0.879 (60% pass): it knows
-  MQTT well, and most of its failures are missing details and section citations.
+- **Against the whole specification in the prompt**, `mcp` uses 89% fewer tokens
+  (67% fewer cost-weighted) and scores 2.7 points lower, about the same gap as in the
+  midday comparison of the previous server (2.8). It takes about 22% longer: one
+  model call with a cached 90,000-token prompt is faster than a tool round trip.
+- **Against plain grep**, `mcp` is as accurate (+0.3 points, within noise; -0.8 at
+  midday), 11% faster and makes fewer model calls (2.3 against 2.9). It uses
+  about 8% more raw tokens but 9% fewer cost-weighted tokens. Its fixed prefix (four
+  tool definitions and the required server instructions) is about 2.4 times grep's
+  and is re-sent with every call; for comparison questions `mcp` uses 29% fewer
+  tokens than grep.
+- **Where `mcp` loses facts**, they are mostly in a relevant section the model never
+  read: it usually answers from one search (57% of runs), and the workflow allows one
+  further `get`. Facts it had read but left out were rare.
+- **The model drifted during the day.** The unchanged `grep` condition scored 2.7
+  points lower in the evening than at midday (95% CI 1.0 to 4.3) and
+  `full_spec` 1.7 points lower; two `mcp` passes run side by side in the evening
+  agreed within 0.2 points. Only runs made together are compared here.
+- **Without reference material** the model scored 0.879 (60% pass) at midday:
+  it knows MQTT well, and its failures are mostly missing details and citations.
 
-## Server change between the two `mcp` runs
+## Server versions
 
-The first `mcp` run used single-window snippets, 320-character later snippets and
-the previous guidance. Rescored with the same final keys:
+Rescored with the same keys. Versions 1 and 2 ran around midday (12:20-13:25 ET),
+version 3 in the early evening, so their quality differences include the drift
+above; relative to the baselines run with them, `mcp` held its place.
 
-| `mcp` run | quality | pass rate | tokens/run | tool calls | model calls | latency s |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| before | 0.966 | 0.860 | 11,435 | 1.90 | 2.56 | 9.26 |
-| after | 0.968 | 0.860 | 10,644 | 1.61 | 2.37 | 8.96 |
+| `mcp` server | changes | pass | quality | tokens/question | model calls |
+| --- | --- | --- | ---: | ---: | ---: |
+| v1 (f76a154) | single-window snippets, 3 results, 320-char later snippets | midday | 0.966 | 11,450 | 2.56 |
+| v2 (941005a) | query-focused passages, 640-char later snippets, guidance | midday | 0.968 | 10,644 | 2.37 |
+| v3 (4f35851) | 4 results by default, shorter tool text and instructions | evening | 0.954 / 0.952 | 9,781 / 9,723 | 2.34 / 2.33 |
 
-Quality did not change measurably (paired delta +0.002, 95% CI [-0.016, +0.018]);
-the new snippets carry more of the needed facts per search, and the model made
-fewer calls, so each answer took 7% fewer tokens and 3% less time.
+In the midday pass `full_spec` scored 0.996, `grep` 0.976, `mcp` 0.966 (v1) and
+0.968 (v2), and `none` 0.879.
 
 ## Scoring checks
 
 - Every case's reference answer scores 1.0; a non-answer scores 0.0 on every case.
 - Scored against 1,000 reference answers of other cases of the same version, only
   3 passed (all near-duplicate topics) and the mean quality was 0.04.
-- In the first report, before the review-driven key fixes, the same stored answers
-  scored 0.921 (`full_spec`), 0.863 (`mcp`, first run) and 0.754 (`none`): most
-  early failures were keys that rejected correct phrasing. Review and fixes are
-  described in [AUTHORING.md](../AUTHORING.md).
+- In the first report, before the review-driven key fixes, the midday answers
+  scored 0.921 (`full_spec`), 0.863 (`mcp`) and 0.754 (`none`): most early failures
+  were keys that rejected correct phrasing. Review and fixes are described in
+  [AUTHORING.md](../AUTHORING.md).

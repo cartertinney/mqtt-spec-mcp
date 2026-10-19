@@ -351,6 +351,19 @@ def test_report_pairs_bootstrap_and_gates(tmp_path: Path) -> None:
     assert report.main([str(path), "--gate-speedup", "3"]) == 1
 
 
+def test_report_epoch_filter(tmp_path: Path) -> None:
+    path = tmp_path / "runs.jsonl"
+    for epoch in (0, 1):
+        for condition in ("full_spec", "mcp"):
+            record = _record(condition, "c0", 1.0, 1_000, 1.0)
+            append_record(path, record.model_copy(update={"epoch": epoch}))
+    out = tmp_path / "report.json"
+    assert report.main([str(path), "--epoch", "1", "--json-output", str(out)]) == 0
+    summary = json.loads(out.read_text("utf-8"))["summary"]
+    assert {row["runs"] for row in summary} == {1}
+    assert report.main([str(path), "--epoch", "7"]) == 1
+
+
 def test_report_refuses_mixed_hashes(tmp_path: Path) -> None:
     a = _record("mcp", "c1", 1.0, 10, 1.0)
     b = _record("mcp", "c2", 1.0, 10, 1.0)

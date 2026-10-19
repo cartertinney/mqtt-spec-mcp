@@ -284,8 +284,13 @@ uv run inspect eval mqtt_spec_mcp/mqtt_reference -T condition=full_spec -T versi
 # Paired report (overall and per version) with bootstrap 95% CIs and release gates
 uv run mqtt-spec-bench-report benchmarks/runs/copilot.jsonl \
     --gate-quality-regression 0.02 --gate-token-reduction 0.50 --gate-speedup 1.20
+uv run mqtt-spec-bench-report benchmarks/runs/copilot.jsonl --rescore --epoch 1
 uv run mqtt-spec-bench-report --inspect-log logs/<file>.eval --rescore
 ```
+
+`--epoch` restricts the report to runs from the given epoch(s). Compare conditions
+only within runs made together: the same model can answer measurably differently a
+few hours later (see the results below).
 
 Current retrieval baseline on the 200 cases (220 queries, since each comparison case
 is ranked once per version): Recall@1 0.80, Recall@3 0.60, Recall@5 0.67, hit rate
@@ -324,23 +329,24 @@ stored answers offline.
 ### Latest results
 
 [benchmarks/results/2026-10-19-claude-sonnet-5.md](benchmarks/results/2026-10-19-claude-sonnet-5.md)
-has the full report: Claude Sonnet 5 through the Copilot SDK, all 200 cases, one
-epoch.
+has the full report. Claude Sonnet 5 through the Copilot SDK, all 200 cases, the
+three reference conditions run side by side with the current server (`none` from an
+earlier pass the same day):
 
-| condition | quality | pass rate | tokens/question | latency (mean) | model calls |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `full_spec` | 0.996 | 97.0% | 90,445 | 7.3 s | 1.00 |
-| `grep` | 0.976 | 88.5% | 9,180 | 9.4 s | 2.98 |
-| `mcp` | 0.968 | 86.0% | 10,644 | 9.0 s | 2.37 |
-| `none` | 0.879 | 60.0% | 1,000 | 8.3 s | 1.00 |
+| condition | quality | pass rate | tokens/question | cost-weighted tokens | latency (mean) | model calls |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `full_spec` | 0.979 | 91.0% | 90,426 | 21,076 | 7.1 s | 1.00 |
+| `grep` | 0.949 | 79.5% | 8,971 | 7,678 | 9.5 s | 2.91 |
+| `mcp` | 0.952 | 74.5% | 9,723 | 7,013 | 8.6 s | 2.33 |
+| `none` | 0.879 | 60.0% | 1,000 | 3,351 | 8.3 s | 1.00 |
 
-With this server the model used 88% fewer tokens than with the whole specification
-in its prompt, but scored 2.8 points lower (95% CI 1.4 to 4.3). Most of those
-misses were in a second relevant section it never read. It also took about 23%
-longer, because it needs a tool round trip and the full-specification prompt was
-served from the prompt cache. So the token-reduction gate passes and the quality
-and speed gates do not. A plain grep tool over the same text did about as well as
-this server.
+With this server the model used 89% fewer tokens than with the whole specification
+in its prompt and scored 2.7 points lower (95% CI 1.3 to 4.2); most of those misses
+were in a second relevant section it never read. It took about 22% longer, because
+a tool round trip is slower than one call whose 90,000-token prompt comes from the
+prompt cache. Against a plain grep tool over the same text it was as accurate and
+11% faster, and used about 8% more raw tokens but 9% fewer once cached tokens are
+priced (cost-weighted: cache reads 0.1, cache writes 1.25, output 5).
 
 ## Development
 

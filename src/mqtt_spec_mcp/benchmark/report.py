@@ -325,6 +325,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gate-token-reduction", type=float)
     parser.add_argument("--gate-speedup", type=float)
     parser.add_argument("--json-output", type=Path)
+    parser.add_argument(
+        "--epoch",
+        action="append",
+        type=int,
+        default=[],
+        help="only these epochs (repeatable); compare runs made together",
+    )
     args = parser.parse_args(argv)
 
     records = load_records(args.results)
@@ -336,6 +343,11 @@ def main(argv: list[str] | None = None) -> int:
         print("no records found", file=sys.stderr)
         return 1
     records = latest_records(records)
+    if args.epoch:
+        records = [r for r in records if r.epoch in set(args.epoch)]
+        if not records:
+            print("no records for the selected epochs", file=sys.stderr)
+            return 1
     try:
         if args.rescore:
             cases = {c.id: c for c in load_cases(args.cases)}

@@ -292,6 +292,13 @@ appear in the body.
 - Resumed runs append retries after failed attempts; the report keeps one record
   per (model, condition, case, epoch): the last successful one, else the last
   failure.
+- Conditions are compared only within runs made together. On 2026-10-19 the
+  unchanged `grep` condition scored 2.7 points lower in an evening pass than in a
+  midday one (paired 95% CI 1.0 to 4.3; fact recall 0.981 against 0.951), while two
+  `mcp` passes run side by side that evening agreed within 0.2 points. Re-running one
+  condition later therefore measures the model's drift as well as the change. The
+  report's `--epoch` option restricts it to the runs of one pass; a re-run of one
+  condition should be followed by a pass of the conditions it is compared with.
 - Copilot SDK runner: `CopilotClient(mode="empty")`, built-in tools disabled via
   `available_tools` (custom tools only, or none), system message in `replace`
   mode, infinite sessions off, one fresh session per run, `--concurrency` sessions

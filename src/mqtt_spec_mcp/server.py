@@ -40,9 +40,10 @@ Evidence from the OASIS MQTT 3.1.1 and 5.0 specifications; each call reads one v
 carry section numbers, labels or codes between versions (3.1.1 has Clean Session and \
 return codes; 5.0 has Clean Start, Session Expiry, properties and reason codes). To \
 compare, query each version and cite the version with each claim.
-- Search once with all the question's key terms and answer from the excerpts, citing \
-their sections; use lookup for one exact packet, property, code, label or term. Get \
-one listed section only if a rule you need is missing. Never invent identifiers.
+- Consult the tools before answering: search once with all the question's key \
+terms and answer from the excerpts, citing their sections; use lookup for one exact \
+packet, property, code, label or term. Get one listed section only if a rule you \
+need is missing. Never invent identifiers.
 - Keep MUST/SHOULD/MAY and every condition and exception.
 """
 

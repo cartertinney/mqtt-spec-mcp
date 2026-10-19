@@ -164,7 +164,7 @@ appear in the body.
   `packet`. The others (`depth`, `chapter`, `limit`, `normative_only`,
   `include_subsections`, `max_chars`) are still accepted. Descriptions and the
   server instructions are short, keeping the version-safety rules. Together the
-  model-visible tool definitions and instructions fell from 1,222 to 597
+  model-visible tool definitions and instructions fell from 1,222 to 603
   `o200k_base` tokens per call; the scope sentence in every result is shorter too.
 - The server instructions tell the agent to consult the tools before answering (in
   the first full run 4 of 120 MCP 5.0 runs answered from memory and scored 0.59).

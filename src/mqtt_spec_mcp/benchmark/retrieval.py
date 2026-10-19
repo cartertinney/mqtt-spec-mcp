@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from mqtt_spec_mcp.search import rank_sections
 from mqtt_spec_mcp.server import MqttSpecService
 
 from .cases import Case, load_cases, lookup_version, run_lookup, section_refs
@@ -99,7 +100,9 @@ def evaluate(
             ranked = (
                 []
                 if outcome.is_error
-                else [r["section"] for r in json.loads(outcome.text)["results"]]
+                else rank_sections(
+                    service.engines[version], case.search_query, limit=SEARCH_LIMIT
+                )
             )
             first = overall.add(ranked, relevant)
             by_version.setdefault(version, _Tally()).add(ranked, relevant)

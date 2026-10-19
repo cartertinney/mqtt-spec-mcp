@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 import re
 from collections import Counter
@@ -41,18 +40,20 @@ BOOST_BODY_PHRASE = 10.0
 BOOST_TITLE_PAIR = 6.0
 BOOST_HEX_IDENTIFIER = 8.0
 BOOST_BODY_PAIR = 2.0
-FIRST_SNIPPET_CHARS = 1600
-OTHER_SNIPPET_CHARS = 640
-# Later results share this budget, so a larger limit does not grow the response.
-LATER_SNIPPETS_CHARS = 1920
-MIN_LATER_SNIPPETS_CHARS = 480
-# Search responses stay under 5,000 characters of compact JSON.
-MAX_SEARCH_CHARS = 4900
 PARENT_SNIPPET_CHARS = 700
 PASSAGE_PHRASE_BONUS = 5.0
+# Evidence pack: excerpt characters per search, candidate sections, and how much
+# a lower-ranked section's sentences are discounted (1 / (1 + prior * rank)).
+PACK_CHARS = 5500
+PACK_SECTIONS = 8
+PACK_RANK_PRIOR = 0.15
+LABEL_SECTIONS = 3
+LABEL_FIRST_CHARS = 1600
+LABEL_OTHER_CHARS = 400
+SECTION_QUERY_CHARS = 3000
+MIN_DEDUP_CHARS = 30
 MAX_QUERY_TERMS = 32
 CLUSTER_SPAN = 400
-MAX_SNIPPET_LABELS = 5
 
 # English function words plus question fillers ("what happens when ..."). "will" is
 # deliberately absent: Will Message, Will Flag and Will Delay are MQTT terms.
@@ -337,6 +338,71 @@ class SearchIndex:
             return window(text, self.anchor(text, query), budget)
         return _render_passages(text, units, sorted(chosen))
 
+    def evidence(
+        self, docs: list[_Doc], query: str, budget: int
+    ) -> list[tuple[_Doc, str]]:
+        """Query-focused excerpts drawn from several ranked sections at once.
+
+        Every sentence of the candidate sections is scored like ``passages`` and
+        discounted by its section's rank; sentences are added best first, each with
+        its neighbours, while the excerpts plus section headings fit ``budget``.
+        Sections come back in rank order, sentences in document order."""
+        terms = query_terms(query)
+        patterns = [
+            re.compile(rf"(?<![0-9a-z]){re.escape(_prefix_form(t))}") for t in terms
+        ]
+        phrase = phrase_form(query) if len(terms) > 1 else ""
+        per_doc: list[list[tuple[int, int]]] = []
+        candidates: list[tuple[float, int, int]] = []
+        for rank, doc in enumerate(docs):
+            body = doc.info.body
+            units = _units(body)
+            haystack = match_form(body)
+            per_doc.append(units)
+            for i, (start, end) in enumerate(units):
+                segment = haystack[start:end]
+                score = sum(
+                    self.idf.get(t, self.max_idf)
+                    for t, p in zip(terms, patterns, strict=True)
+                    if p.search(segment)
+                )
+                if phrase and phrase in " ".join(segment.split()):
+                    score += PASSAGE_PHRASE_BONUS
+                if score > 0:
+                    candidates.append((score / (1 + PACK_RANK_PRIOR * rank), rank, i))
+        candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
+        chosen: dict[int, set[int]] = {}
+        sizes: dict[int, int] = {}
+        seen: set[str] = set()  # sentences already shown in a higher-ranked section
+        total = 0
+        for _, rank, best in candidates:
+            units = per_doc[rank]
+            info = docs[rank].info
+            heading = len(info.id) + len(info.title) + 6
+            for j in (best, best + 1, best - 1):
+                current = chosen.get(rank, set())
+                if not 0 <= j < len(units) or j in current:
+                    continue
+                text = " ".join(info.body[units[j][0] : units[j][1]].lower().split())
+                if len(text) >= MIN_DEDUP_CHARS and text in seen:
+                    continue
+                trial = current | {j}
+                size = heading + _passage_size(units, trial)
+                if total + size - sizes.get(rank, 0) > budget:
+                    if j == best:
+                        break
+                    continue
+                total += size - sizes.get(rank, 0)
+                chosen[rank], sizes[rank] = trial, size
+                seen.add(text)
+        return [
+            (
+                docs[r],
+                _render_passages(docs[r].info.body, per_doc[r], sorted(chosen[r])),
+            )
+            for r in sorted(chosen)
+        ]
+
     def anchor(self, text: str, query: str) -> int | None:
         """Where a snippet should focus: the first whole-word phrase match, else
         the start of the densest cluster of informative query terms."""
@@ -469,26 +535,10 @@ def _render_passages(text: str, units: list[tuple[int, int]], order: list[int]) 
     return "".join(parts)
 
 
-def snippet_labels(
-    engine: SpecEngine, snippet: str, query_label: str | None
-) -> list[str]:
-    labels: list[str] = []
-    if query_label is not None:
-        labels.append(query_label)
-    for match in LABEL_PATTERN.finditer(snippet):
-        label = canonical_label(match.group(1), engine.version)
-        if label not in labels:
-            labels.append(label)
-    return labels[:MAX_SNIPPET_LABELS]
-
-
-def search(
-    engine: SpecEngine,
-    query: str,
-    chapter: str | None,
-    limit: int,
-    normative_only: bool,
-) -> dict[str, Any]:
+def _ranked(
+    engine: SpecEngine, query: str, chapter: str | None, normative_only: bool
+) -> tuple[str, SectionInfo | None, list[_Doc], str | None, bool]:
+    """Validate a query and rank sections: (query, chapter, docs, label, identifier)."""
     engine.guard("query", query)
     query = query.strip()
     if not tokenize(query):
@@ -497,56 +547,69 @@ def search(
             "'Session Expiry Interval' or a requirement label such as 'MQTT-3.1.2-4'."
         )
     root = engine.resolve_section(chapter, "chapter") if chapter is not None else None
-    index = engine.search_index
-    ranked = index.rank(query, root.id if root else None, normative_only)[:limit]
+    ranked = engine.search_index.rank(query, root.id if root else None, normative_only)
     label = canonical_label(query, engine.version) if looks_like_label(query) else None
     if label is not None and label not in engine.requirements:
         label = None
+    q_id = SECTION_PREFIX.sub("", normalize(query)).strip().rstrip(".,;:")
+    identifier = label is not None or SECTION_ID.fullmatch(q_id) is not None
+    return query, root, [doc for _, doc in ranked], label, identifier
 
-    def build(later_budget: int) -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
-        for position, (_, doc) in enumerate(ranked):
-            info = doc.info
-            budget = (
-                FIRST_SNIPPET_CHARS
-                if position == 0
-                else min(OTHER_SNIPPET_CHARS, later_budget // (len(ranked) - 1))
+
+def rank_sections(
+    engine: SpecEngine,
+    query: str,
+    chapter: str | None = None,
+    limit: int = PACK_SECTIONS,
+    normative_only: bool = False,
+) -> list[str]:
+    """Section ids in rank order (the order the evidence pack draws from)."""
+    return [doc.info.id for doc in _ranked(engine, query, chapter, normative_only)[2]][
+        :limit
+    ]
+
+
+def search(
+    engine: SpecEngine,
+    query: str,
+    chapter: str | None = None,
+    limit: int | None = None,
+    normative_only: bool = False,
+) -> dict[str, Any]:
+    """An evidence pack: query-focused excerpts from the best-ranked sections."""
+    query, root, docs, label, identifier = _ranked(
+        engine, query, chapter, normative_only
+    )
+    index = engine.search_index
+    docs = docs[: limit or PACK_SECTIONS]
+    sections: list[dict[str, Any]] = []
+    if label is not None:
+        # Requirement label: the requirement itself, then the sections that list it.
+        for position, doc in enumerate(docs[:LABEL_SECTIONS]):
+            if label not in doc.info.section.requirements:
+                continue
+            budget = LABEL_FIRST_CHARS if position == 0 else LABEL_OTHER_CHARS
+            excerpt = _label_snippet(engine, doc.info, label, budget)
+            sections.append(_entry(doc.info, excerpt))
+    elif identifier and docs:
+        info = docs[0].info
+        sections.append(_entry(info, window(info.body, None, SECTION_QUERY_CHARS)))
+    elif docs:
+        for doc, excerpt in index.evidence(docs, query, PACK_CHARS):
+            sections.append(_entry(doc.info, excerpt))
+        if not sections:
+            info = docs[0].info
+            sections.append(
+                _entry(info, window(info.body, index.anchor(info.body, query), 1600))
             )
-            in_section = label is not None and label in info.section.requirements
-            if in_section and label is not None:
-                snippet = _label_snippet(engine, info, label, budget)
-            else:
-                snippet = index.passages(info.body, query, budget)
-            entry: dict[str, Any] = {
-                "section": info.id,
-                "title": info.title,
-                "snippet": snippet,
-                "requirements": snippet_labels(
-                    engine, snippet, label if in_section else None
-                ),
-            }
-            if position == 0 and info.section.parent is not None:
-                parent = engine.sections[info.section.parent]
-                if parent.body.strip():
-                    entry["parent_context"] = {
-                        "section": parent.id,
-                        "title": parent.title,
-                        "snippet": index.passages(
-                            parent.body, query, PARENT_SNIPPET_CHARS
-                        ),
-                    }
-            results.append(entry)
-        return results
-
     v = engine.version
-    best = ranked[0][1].info.id if ranked else None
-    if ranked:
+    best = sections[0]["section"] if sections else None
+    if sections:
         next_step = (
-            "Snippets are partial excerpts. Answer from them only if they state every "
-            "fact the question asks for, with its conditions. "
-            f"Otherwise call mqtt_spec_get once with version='{v}' and "
-            f"section='{best}', or with another listed section whose snippet fits "
-            "the question better. Do not search again for this question."
+            "Answer from these excerpts if they state every fact the question asks "
+            "for, citing their sections. Otherwise call mqtt_spec_get once with "
+            f"version='{v}' for the listed section that should hold the rest. Do not "
+            "search again for this question."
         )
     else:
         next_step = (
@@ -561,21 +624,25 @@ def search(
             "query": query,
             "chapter": root.id if root else None,
             "normative_only": normative_only,
-            "results": [],
+            "sections": sections,
             "best_section": best,
             "next_step": next_step,
         }
     )
-    # Later results give up snippet room until the response fits the size bound.
-    later_budget = LATER_SNIPPETS_CHARS
-    while True:
-        result["results"] = build(later_budget)
-        size = len(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
-        if size <= MAX_SEARCH_CHARS or later_budget <= MIN_LATER_SNIPPETS_CHARS:
-            return result
-        later_budget = max(
-            MIN_LATER_SNIPPETS_CHARS, later_budget - (size - MAX_SEARCH_CHARS) - 40
-        )
+    return result
+
+
+def _entry(info: SectionInfo, excerpt: str) -> dict[str, Any]:
+    return {"section": info.id, "title": info.title, "excerpt": excerpt}
+
+
+def render_search(result: dict[str, Any]) -> str:
+    """The evidence pack as Markdown: scope and source, sections, next step."""
+    lines = [f"{result['scope']} Source: {result['source']}"]
+    for entry in result["sections"]:
+        lines += ["", f"## {entry['section']} {entry['title']}", entry["excerpt"]]
+    lines += ["", result["next_step"]]
+    return "\n".join(lines)
 
 
 def _label_snippet(

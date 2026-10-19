@@ -409,7 +409,8 @@ def test_will_is_a_search_term(ok: JsonCall) -> None:
 def test_next_step_offers_listed_alternatives(ok: JsonCall) -> None:
     step = ok("mqtt_spec_search", version="5.0", query="keep alive")["next_step"]
     assert "listed section" in step
-    assert "Do not search again for this question." in step
+    assert "Do not search MQTT 5.0 again for this question" in step
+    assert "to compare versions, search MQTT 3.1.1 once" in step
 
 
 def test_pages_split_at_sentences_and_pack_small_pages(call: Call) -> None:

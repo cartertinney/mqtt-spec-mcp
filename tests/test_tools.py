@@ -22,7 +22,7 @@ def test_search_will_delay_interval(ok: JsonCall) -> None:
     result = ok("mqtt_spec_search", version="5.0", query="Will Delay Interval")
     assert result["results"][0]["section"] == "3.1.3.2.2"
     assert result["best_section"] == "3.1.3.2.2"
-    assert "not search again" in result["next_step"]
+    assert "not search MQTT 5.0 again" in result["next_step"]
 
 
 def test_search_label_normative_only(ok: JsonCall) -> None:
@@ -386,6 +386,24 @@ def test_lookup_packet_carries_its_own_text(ok: JsonCall) -> None:
     assert "fixed_header" not in ping  # only a figure, no prose
     puback = ok("mqtt_spec_lookup", version="3.1.1", kind="packet", query="PUBACK")
     assert puback["remaining_length"] == 2
+
+
+def test_lookup_packet_carries_its_actions(ok: JsonCall) -> None:
+    ping = ok("mqtt_spec_lookup", version="5.0", kind="packet", query="PINGREQ")
+    [actions] = ping["actions"]
+    assert actions["section"] == "3.12.4"
+    assert "[MQTT-3.12.4-1]" in actions["text"]
+    pong = ok("mqtt_spec_lookup", version="5.0", kind="packet", query="PINGRESP")
+    assert "takes no action" in pong["actions"][0]["text"]
+    publish = ok("mqtt_spec_lookup", version="3.1.1", kind="packet", query="PUBLISH")
+    assert [(a["section"], a["title"]) for a in publish["actions"]] == [
+        ("3.3.4", "Response"),
+        ("3.3.5", "Actions"),
+    ]
+    connect = ok("mqtt_spec_lookup", version="5.0", kind="packet", query="CONNECT")
+    assert len(connect["actions"][0]["text"]) <= 600
+    connack = ok("mqtt_spec_lookup", version="5.0", kind="packet", query="CONNACK")
+    assert "actions" not in connack
 
 
 def test_lookup_property_with_packet(ok: JsonCall) -> None:

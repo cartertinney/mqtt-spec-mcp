@@ -23,6 +23,7 @@ PROPERTY_TABLE_SECTION = "2.2.2.2"
 # Spec text returned with a lookup, so the entry can be answered without a get.
 SUMMARY_CHARS = 600
 FIXED_HEADER_CHARS = 400
+ACTIONS_CHARS = 600
 # Without a packet filter, properties defined in more sections return no excerpts.
 DETAIL_SECTIONS = 3
 # Reason and return codes carry their per-packet meanings for this many matches.
@@ -210,6 +211,17 @@ class Lookup:
             )
             if prose:
                 result["fixed_header"] = window(prose, None, FIXED_HEADER_CHARS)
+        actions = [
+            {
+                "section": child.id,
+                "title": child.title,
+                "text": window(child.body, None, ACTIONS_CHARS),
+            }
+            for child in map(sections.__getitem__, sections[packet.section].children)
+            if child.title.endswith("Actions") or child.title == "Response"
+        ]
+        if actions:
+            result["actions"] = actions
         index = self.engine.index
         if self.v == "5.0":
             result["properties"] = [

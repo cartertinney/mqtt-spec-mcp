@@ -149,7 +149,7 @@ MQTT 5.0 only. Never apply its section numbers, labels, fields or codes to MQTT 
 ...If the PUBLISH packet contains a Topic Alias, the receiver processes it as follows:
 - 1) A Topic Alias value of 0 or greater than the Maximum Topic Alias is a Protocol Error, ...
 
-Answer from these excerpts: state each rule here that bears on the question, with its MUST/SHOULD/MAY and conditions, and cite its section. If a needed rule is missing, get one listed section with mqtt_spec_get (version='5.0'). Do not search again for this question.
+Answer from these excerpts: state each rule here that bears on the question, with its MUST/SHOULD/MAY and conditions, and cite its section. If a needed rule is missing, get one listed section with mqtt_spec_get (version='5.0'). Do not search MQTT 5.0 again for this question (to compare versions, search MQTT 3.1.1 once).
 ```
 
 ### `mqtt_spec_get`
@@ -206,8 +206,10 @@ the reason code **Unspecified error**.
 Results carry the spec text needed to answer about the entity without a `get`:
 
 - A packet has a `summary` (the start of its section), the prose of its fixed
-  header section as `fixed_header` (for example DISCONNECT's reserved-bits rule), and
-  `remaining_length` when the fixed header fixes it (PINGREQ: 0).
+  header section as `fixed_header` (for example DISCONNECT's reserved-bits rule),
+  `remaining_length` when the fixed header fixes it (PINGREQ: 0), and the start of
+  its Actions or Response sections as `actions` (PINGREQ: the Server MUST send a
+  PINGRESP).
 - A property has excerpts of the sections that define it: for `packet`'s section
   when given, otherwise for each defining section when there are at most three.
 - Reason codes (at most three matches) and return codes list their `meanings`: the

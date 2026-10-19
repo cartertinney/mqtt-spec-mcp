@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
+from .common import OTHER_VERSION
 from .textutil import (
     LABEL_PATTERN,
     SECTION_PREFIX,
@@ -573,7 +574,8 @@ def search(
             "Answer from these excerpts: state each rule here that bears on the "
             "question, with its MUST/SHOULD/MAY and conditions, and cite its section. "
             "If a needed rule is missing, get one listed section with mqtt_spec_get "
-            f"(version='{v}'). Do not search again for this question."
+            f"(version='{v}'). Do not search MQTT {v} again for this question (to "
+            f"compare versions, search MQTT {OTHER_VERSION[v]} once)."
         )
     else:
         next_step = (

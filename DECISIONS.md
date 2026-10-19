@@ -153,8 +153,10 @@ appear in the body.
   rejected (at most +0.01 at the same size, or lower retrieval metrics).
 - The pack ends with the next step: state each rule in the excerpts that bears on
   the question, with its MUST/SHOULD/MAY and conditions, and cite its section; if
-  a needed rule is missing, get one listed section; "Do not search again for this
-  question." With no match it says nothing matched in this version, that this is
+  a needed rule is missing, get one listed section; do not search this version
+  again for this question (to compare versions, search the other one once). The
+  version-specific wording came after 11 of 60 comparison runs consulted only one
+  version (quality 0.80 to 0.88, against 0.92 to 0.97 with both). With no match it says nothing matched in this version, that this is
   not proof of absence, and that it says nothing about any other version.
 - The tools advertise only the parameters agents used in 803 benchmark runs
   (`outline` 7 calls, search's optional parameters 9 uses in 886 searches): outline
@@ -211,8 +213,10 @@ appear in the body.
 - Lookup results carry the spec text that answers about the entity, so a lookup
   rarely needs a follow-up get: a packet's `summary` (its section's first 600
   characters), the prose of its fixed header section as `fixed_header` (400;
-  DISCONNECT's reserved-bits rule with 0x81) and `remaining_length` where the fixed
-  header figure fixes it; a property's `details` (excerpts of 700 characters with
+  DISCONNECT's reserved-bits rule with 0x81), `remaining_length` where the fixed
+  header figure fixes it, and its Actions or Response sections as `actions` (600
+  each: PINGREQ's "Server MUST send a PINGRESP" is a one-sentence section that
+  multi-term searches rank low); a property's `details` (excerpts of 700 characters with
   their requirement labels); and for at most three reason codes, and for return
   codes, the row of each packet's own code table as `meanings` (with `sent_by`
   where the table has that column). In the evidence-pack benchmark runs that used

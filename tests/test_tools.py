@@ -375,6 +375,19 @@ def test_lookup_packet_connect(ok: JsonCall) -> None:
     assert by_number["name"] == "CONNECT"
 
 
+def test_lookup_packet_carries_its_own_text(ok: JsonCall) -> None:
+    result = ok("mqtt_spec_lookup", version="5.0", kind="packet", query="DISCONNECT")
+    assert result["summary"].startswith("The DISCONNECT packet is the final")
+    assert "0x81 (Malformed Packet)" in result["fixed_header"]
+    assert "[MQTT-3.14.1-1]" in result["fixed_header"]
+    assert "remaining_length" not in result
+    ping = ok("mqtt_spec_lookup", version="5.0", kind="packet", query="PINGREQ")
+    assert ping["remaining_length"] == 0
+    assert "fixed_header" not in ping  # only a figure, no prose
+    puback = ok("mqtt_spec_lookup", version="3.1.1", kind="packet", query="PUBACK")
+    assert puback["remaining_length"] == 2
+
+
 def test_lookup_property_with_packet(ok: JsonCall) -> None:
     result = ok(
         "mqtt_spec_lookup",
@@ -395,6 +408,17 @@ def test_lookup_property_with_packet(ok: JsonCall) -> None:
         packet="Will",
     )
     assert [d["section"] for d in will["details"]] == ["3.1.3.2.2"]
+
+
+def test_lookup_property_without_packet_has_excerpts(ok: JsonCall) -> None:
+    result = ok(
+        "mqtt_spec_lookup", version="5.0", kind="property", query="Receive Maximum"
+    )
+    assert [d["section"] for d in result["details"]] == ["3.1.2.11.3", "3.2.2.3.3"]
+    assert "defaults to 65,535" in result["details"][0]["excerpt"]
+    spread = ok("mqtt_spec_lookup", version="5.0", kind="property", query="0x26")
+    assert len(spread["sections"]) > 4
+    assert spread["details"] == []
 
 
 def test_lookup_property_substring(ok: JsonCall) -> None:
@@ -419,10 +443,39 @@ def test_lookup_reason_code_suback_zero(ok: JsonCall) -> None:
             "name": "Granted QoS 0",
             "packets": ["SUBACK"],
             "section": "2.4",
+            "meanings": [
+                {
+                    "packet": "SUBACK",
+                    "section": "3.9.3",
+                    "meaning": "The subscription is accepted and the maximum QoS sent "
+                    "will be QoS 0. This might be a lower QoS than was requested.",
+                }
+            ],
         }
     ]
     everything = ok("mqtt_spec_lookup", version="5.0", kind="reason_code", query="0")
     assert len(everything["matches"]) == 3
+
+
+def test_lookup_code_meanings_per_packet(ok: JsonCall) -> None:
+    taken = ok("mqtt_spec_lookup", version="5.0", kind="reason_code", query="0x8E")
+    [meaning] = taken["matches"][0]["meanings"]
+    assert meaning["packet"] == "DISCONNECT"
+    assert meaning["sent_by"] == "Server"
+    assert "same ClientID" in meaning["meaning"]
+    unspecified = ok("mqtt_spec_lookup", version="5.0", kind="reason_code", query="128")
+    packets = [m["packet"] for m in unspecified["matches"][0]["meanings"]]
+    assert packets == list(unspecified["matches"][0]["packets"])
+    refused = ok(
+        "mqtt_spec_lookup",
+        version="3.1.1",
+        kind="return_code",
+        query="1",
+        packet="CONNACK",
+    )
+    assert (
+        "level of the MQTT protocol" in refused["matches"][0]["meanings"][0]["meaning"]
+    )
 
 
 def test_lookup_requirement_and_term(ok: JsonCall) -> None:

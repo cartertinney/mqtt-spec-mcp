@@ -511,6 +511,20 @@ def test_evidence_pack_shows_a_repeated_sentence_once(ok: JsonCall) -> None:
     assert text.count(repeated) == 1
 
 
+def test_evidence_pack_prefers_normative_sentences(ok: JsonCall) -> None:
+    query = "Response Topic Correlation Data request/response"
+    pack = ok("mqtt_spec_search", version="5.0", query=query)
+    text = "\n".join(r["snippet"] for r in pack["results"])
+    assert "[MQTT-3.3.2-14]" in text  # Response Topic MUST NOT contain wildcards
+
+
+def test_evidence_pack_fills_the_best_section_first(ok: JsonCall) -> None:
+    query = "Variable Byte Integer continuation bytes padding maximum value"
+    pack = ok("mqtt_spec_search", version="5.0", query=query)
+    assert pack["results"][0]["section"] == "1.5.5"
+    assert "268,435,455" in pack["results"][0]["snippet"]
+
+
 def test_evidence_excerpts_are_verbatim(engines: dict[str, SpecEngine]) -> None:
     result = search(engines["5.0"], "Session Expiry Interval DISCONNECT")
     for entry in result["sections"]:

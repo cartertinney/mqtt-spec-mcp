@@ -10,8 +10,10 @@ specification into their context.
 - Two bundled, pre-built indexes; no network, database, embeddings or LLM at query time.
 - **Strict version isolation.** Every call names exactly one version. Nothing is
   inferred, defaulted, merged or carried over between 3.1.1 and 5.0.
-- Size limits on every response: `get` pages never exceed `max_chars`, and default
-  search results stay well under 5,000 characters.
+- Small responses and a small tool surface: one search returns an evidence pack of
+  about 5,500 characters drawn from several sections, `get` pages never exceed
+  `max_chars`, and the tool definitions plus instructions an agent sees cost about
+  600 tokens per model call.
 
 The server returns source excerpts. The agent does the reasoning, and the OASIS
 publications remain the authoritative text.
@@ -86,13 +88,17 @@ drops any cached tool schemas.
 Every tool requires `version`, which must be exactly `"3.1.1"` or `"5.0"`. It has no
 default, and `"5"`, `"v3.1.1"`, `"latest"`, `5` and similar values are rejected.
 
-JSON results (outline, search, lookup) start with the same envelope:
+JSON results (outline, lookup) start with the same envelope; search results are
+Markdown and start with the same scope sentence and source URL:
 
 ```json
 {"specification":"MQTT Version 5.0","version":"5.0",
- "scope":"MQTT 5.0 only. Do not apply this evidence, ... to MQTT 3.1.1 or any other version.",
+ "scope":"MQTT 5.0 only. Never apply its section numbers, labels, fields or codes to MQTT 3.1.1.",
  "source":"https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html", ...}
 ```
+
+Each tool advertises only the parameters agents use, because every model call
+re-sends the tool definitions; the other parameters below are still accepted.
 
 Errors are returned as MCP tool errors (`isError: true`). Each message starts with
 `MQTT <version> only (<source URL>):`, says what was wrong and what to do instead,
@@ -102,8 +108,8 @@ rejected with a message that refers to the *selected version*.
 
 ### `mqtt_spec_outline`
 
-`version`, `parent` (section id or unambiguous title, optional), `depth` (1–5,
-default 1). Returns section ids and titles only, with no body text.
+`version`, `parent` (section id or unambiguous title, optional); `depth` (1–5,
+default 1) is accepted. Returns section ids and titles only, with no body text.
 
 ```json
 {"version": "5.0", "parent": "3"}
@@ -114,26 +120,43 @@ call with version 3.1.1 returns 14.
 
 ### `mqtt_spec_search`
 
-`version`, `query`, `chapter` (restrict to a section's subtree, optional), `limit`
-(1–5, default 4), `normative_only` (only sections with requirement labels).
+`version` and `query`: the question's key terms, a section id (`3.1.2.4`) or a
+requirement label (`MQTT-3.1.2-23`). `chapter` (restrict to a section's subtree),
+`limit` (1–8 sections, default 8) and `normative_only` are accepted.
 
 ```json
-{"version": "5.0", "query": "Shared Subscription", "chapter": "4"}
+{"version": "5.0", "query": "Topic Alias 0 or above Topic Alias Maximum"}
 ```
 
-The first result has a long snippet (about 1,600 characters), often enough to answer
-on its own, plus a `parent_context` snippet. Later results share about 1,920
-characters (about 640 each at the default limit of 4, 480 each at limit 5), and they
-give up room as needed to keep every response under 5,000 characters. Snippets of longer sections are made of the sentences that match the
-query best, each with a neighbouring sentence for context, in document order, with
-`...` marking every cut. `requirements` lists the labels in each snippet, and
-`best_section` and `next_step` say what to do next. A query can be prose, a section
-id (`3.1.2.4`) or a requirement label (`MQTT-3.1.2-23`).
+The result is a Markdown evidence pack of about 5,500 characters: query-focused
+excerpts from up to eight of the best-ranked sections, each under a `## <id> <title>`
+heading, in rank order. The sentences that carry the most query information across
+those sections are taken first, each with a neighbouring sentence for context.
+Normative sentences (MUST, SHOULD, MAY or a requirement label) count double, and the
+best-ranked section's remaining sentences fill spare room before weak matches
+elsewhere. `...` marks every cut, and a sentence repeated word for word in a later
+section is shown once. A requirement-label query shows the requirement in its home
+section and the sections that list it; a section-id query shows that section from
+its start.
+
+```text
+MQTT 5.0 only. Never apply its section numbers, labels, fields or codes to MQTT 3.1.1. Source: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html
+
+## 3.3.2.3.4 Topic Alias
+35 (0x23) Byte, Identifier of the Topic Alias. ...
+
+## 3.3.4 PUBLISH Actions
+...If the PUBLISH packet contains a Topic Alias, the receiver processes it as follows:
+- 1) A Topic Alias value of 0 or greater than the Maximum Topic Alias is a Protocol Error, ...
+
+Answer from these excerpts: state each rule here that bears on the question, with its MUST/SHOULD/MAY and conditions, and cite its section. If a needed rule is missing, get one listed section with mqtt_spec_get (version='5.0'). Do not search again for this question.
+```
 
 ### `mqtt_spec_get`
 
 `version`, `section` (an id such as `3.1.2.4`, an id plus title, or an unambiguous
-title), `include_subsections`, `max_chars` (1,000–12,000, default 4,000), `cursor`.
+title), `cursor`; `include_subsections` and `max_chars` (1,000–12,000, default
+4,000) are accepted.
 
 ```json
 {"version": "3.1.1", "section": "3.1.2.4"}
@@ -180,6 +203,16 @@ The first returns Session Expiry Interval (Four Byte Integer) with an excerpt of
 section 3.1.2.11.2. The second returns **Failure**, whereas in 5.0 SUBACK `0x80` is
 the reason code **Unspecified error**.
 
+Results carry the spec text needed to answer about the entity without a `get`:
+
+- A packet has a `summary` (the start of its section), the prose of its fixed
+  header section as `fixed_header` (for example DISCONNECT's reserved-bits rule), and
+  `remaining_length` when the fixed header fixes it (PINGREQ: 0).
+- A property has excerpts of the sections that define it: for `packet`'s section
+  when given, otherwise for each defining section when there are at most three.
+- Reason and return codes (at most three matches) list their `meanings`: the row of
+  each packet's own code table, with the sender where the table names one.
+
 ## Version-safety guidance for agents
 
 The server sends these instructions to clients. In short:
@@ -196,14 +229,12 @@ The server sends these instructions to clients. In short:
 
 ## Recommended workflow
 
-1. Consult the tools before answering; pick one starting tool. Use
-   `mqtt_spec_lookup` only for one exact, recognized entity; use a single combined
-   `mqtt_spec_search` for everything else.
-2. If the lookup result or the search snippets state every fact the question asks
-   for, answer. Snippets are partial excerpts.
-3. Otherwise call `mqtt_spec_get` once for `best_section`, and follow cursors only
-   if needed. Use `mqtt_spec_outline` only to browse or resolve ambiguity.
-4. Keep MUST/SHOULD/MAY and every condition and exception, and cite sections.
+1. Consult the tools before answering. Use `mqtt_spec_lookup` for one exact,
+   recognized entity; otherwise search once with all the question's key terms.
+2. Answer from the excerpts: state each rule that bears on the question with its
+   MUST/SHOULD/MAY and conditions, and cite its section.
+3. If a needed rule is missing, get one listed section with `mqtt_spec_get`, and
+   follow cursors only if needed. Use `mqtt_spec_outline` only to browse.
 
 ## Index provenance and regeneration
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING, Any
 
 from .schema import Code, Packet, Property
@@ -18,6 +19,15 @@ MAX_TERM_HINTS = 8
 WILL_PROPERTIES = "Will Properties"
 WILL_SECTION = "3.1.3.2"
 RETURN_CODE_PACKETS = ("CONNACK", "SUBACK")
+PROPERTY_TABLE_SECTION = "2.2.2.2"
+# Spec text returned with a lookup, so the entry can be answered without a get.
+SUMMARY_CHARS = 600
+FIXED_HEADER_CHARS = 400
+# Without a packet filter, properties defined in more sections return no excerpts.
+DETAIL_SECTIONS = 3
+# Reason and return codes carry their per-packet meanings for this many matches.
+MEANING_MATCHES = 3
+_FIXED_REMAINING_LENGTH = re.compile(r"Remaining Length \((\d+)\)")
 _PACKET_SUFFIX = re.compile(r"\s+(?:mqtt\s+)?(?:control\s+)?packet$")
 # Catalog values are small; longer digit strings are treated as names (no match).
 _NUMBER = re.compile(r"^(?:0x([0-9a-f]{1,8})|(\d{1,9}))$", re.IGNORECASE)
@@ -30,17 +40,22 @@ def parse_number(text: str) -> int | None:
     return int(match.group(1), 16) if match.group(1) else int(match.group(2))
 
 
-def _codes_out(codes: list[Code]) -> list[dict[str, Any]]:
-    return [
-        {
+def _codes_out(
+    codes: list[Code], meanings: list[list[dict[str, str]]] | None = None
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for i, c in enumerate(codes):
+        entry: dict[str, Any] = {
             "value": c.value,
             "hex": c.hex,
             "name": c.name,
             "packets": list(c.packets),
             "section": c.section,
         }
-        for c in codes
-    ]
+        if meanings and meanings[i]:
+            entry["meanings"] = meanings[i]
+        out.append(entry)
+    return out
 
 
 class Lookup:
@@ -62,6 +77,40 @@ class Lookup:
             if normalize(packet.name) == wanted:
                 return packet
         return None
+
+    def _lines(self, root: str) -> Iterator[tuple[str, str]]:
+        for section_id, info in self.engine.sections.items():
+            if self.engine.in_subtree(section_id, root):
+                for line in info.body.splitlines():
+                    yield section_id, line
+
+    def _meanings(self, code: Code, packets: Iterable[str]) -> list[dict[str, str]]:
+        """The code's row in each packet's own code table: what it means there."""
+        row = re.compile(
+            rf"\s*{code.value}\s*\|\s*{re.escape(code.hex)}\b", re.IGNORECASE
+        )
+        out: list[dict[str, str]] = []
+        for name in packets:
+            packet = self.find_packet(name)
+            if packet is None:
+                continue
+            for section_id, line in self._lines(packet.section):
+                if row.match(line):
+                    cells = [cell.strip() for cell in line.split("|")]
+                    entry = {"packet": packet.name, "section": section_id}
+                    if len(cells) == 5:  # Value | Hex | Name | Sent by | Description
+                        entry["sent_by"] = cells[3]
+                    entry["meaning"] = cells[-1]
+                    out.append(entry)
+                    break
+        return out
+
+    def _code_meanings(
+        self, codes: list[Code], packet: str | None
+    ) -> list[list[dict[str, str]]] | None:
+        if len(codes) > MEANING_MATCHES:
+            return None
+        return [self._meanings(c, (packet,) if packet else c.packets) for c in codes]
 
     def packet_names(self) -> str:
         return ", ".join(f"{p.name} ({p.value})" for p in self.engine.packets)
@@ -144,6 +193,20 @@ class Lookup:
             "fixed_header_flags": packet.fixed_header_flags,
             "section": packet.section,
         }
+        sections = self.engine.sections
+        result["summary"] = window(sections[packet.section].body, None, SUMMARY_CHARS)
+        fixed = sections.get(f"{packet.section}.1")
+        if fixed is not None:
+            length = _FIXED_REMAINING_LENGTH.search(fixed.body)
+            if length:
+                result["remaining_length"] = int(length.group(1))
+            prose = " ".join(
+                line.strip()
+                for line in fixed.body.splitlines()
+                if line.strip() and "|" not in line and not line.startswith("Figure")
+            )
+            if prose:
+                result["fixed_header"] = window(prose, None, FIXED_HEADER_CHARS)
         index = self.engine.index
         if self.v == "5.0":
             result["properties"] = [
@@ -218,20 +281,26 @@ class Lookup:
             "data_type": prop.data_type,
             "packets": list(prop.packets),
             "sections": list(prop.sections),
-            "details": self._property_details(prop, packet) if packet else [],
+            "details": self._property_details(prop, packet),
         }
 
-    def _property_details(self, prop: Property, packet: str) -> list[dict[str, Any]]:
+    def _property_details(
+        self, prop: Property, packet: str | None
+    ) -> list[dict[str, Any]]:
         engine = self.engine
-        if packet == WILL_PROPERTIES:
-            root = WILL_SECTION
+        if packet is None:
+            ids = [s for s in prop.sections if s != PROPERTY_TABLE_SECTION]
+            if len(ids) > DETAIL_SECTIONS:
+                return []
         else:
-            found = self.find_packet(packet)
-            root = found.section if found else ""
+            if packet == WILL_PROPERTIES:
+                root = WILL_SECTION
+            else:
+                found = self.find_packet(packet)
+                root = found.section if found else ""
+            ids = [s for s in prop.sections if engine.in_subtree(s, root)]
         details: list[dict[str, Any]] = []
-        for section_id in prop.sections:
-            if not engine.in_subtree(section_id, root):
-                continue
+        for section_id in ids:
             info = engine.sections[section_id]
             excerpt = window(info.body, None, PARENT_SNIPPET_CHARS)
             labels: list[str] = []
@@ -285,7 +354,10 @@ class Lookup:
                     f"for: {', '.join(allowed)}."
                 )
             codes = valid
-        return {"kind": "reason_code", "matches": _codes_out(codes)}
+        return {
+            "kind": "reason_code",
+            "matches": _codes_out(codes, self._code_meanings(codes, packet)),
+        }
 
     def _return_code(self, query: str, packet: str | None) -> dict[str, Any]:
         assert packet is not None
@@ -313,7 +385,10 @@ class Lookup:
             )
             for c in codes
         ]
-        return {"kind": "return_code", "matches": _codes_out(result_codes)}
+        return {
+            "kind": "return_code",
+            "matches": _codes_out(result_codes, self._code_meanings(codes, packet)),
+        }
 
     def _requirement(self, query: str, _: str | None) -> dict[str, Any]:
         label = canonical_label(query, self.v)

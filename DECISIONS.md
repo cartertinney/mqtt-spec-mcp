@@ -117,54 +117,55 @@ appear in the body.
 - These settings were chosen by measuring the 120-case retrieval benchmark, a
   separate set of 45 practitioner queries, and title self-retrieval together,
   taking values from the flat middle of the range rather than the single best.
-- Snippets: 1,600 characters for the first result, 700 for `parent_context`, and
-  1,920 shared by the later results, at most 640 each (640 at the default limit of
-  4, 480 at limit 5); all limits include the `...` markers. If the compact JSON
-  response would exceed 4,900 characters, the later results' share shrinks (to no
-  less than 480 in total) until it fits, so responses stay under 5,000 characters. A text within the budget
-  is returned whole. Longer texts get query-focused passages rather than one window:
-  the body is split into sentences (each line, split after `.`, `;`, `!`, `?`), each
-  sentence is scored by the idf of the distinct query terms it contains (+5 when it
-  holds the whole query phrase), and sentences are added best first, each followed
-  by its next and previous sentence for context, while they fit. They are printed in
-  document order with ` ... ` between non-adjacent passages. If the best sentence
-  alone exceeds the budget, or nothing matches, the snippet is one window anchored
-  inside that sentence (else on the first whole-word phrase match or densest cluster
-  of query terms), cut at word boundaries. Measured on the queries the model actually
-  issued in the full agent benchmark, passages raised the share of answer-key facts
-  present in the first search response from 0.67 to 0.72 at the same response size.
-  Re-ranking by best single-sentence coverage was also tried: it added at most 0.01
-  and lowered every retrieval metric, so it was rejected.
-- Later results get 640 characters, up from an initial 320: on the same replayed
-  queries this raised fact coverage of the first search response from 0.72 to 0.77
-  (0.77 to 0.81 after a get of `best_section`) for about 600 more characters, with
-  search responses averaging about 3,900 characters. Most facts the MCP condition
-  missed were in the second or third result, which a 320-character snippet rarely
-  reached.
-- The default `limit` is 4, not 3: the first full agent run showed that most facts
-  the `mcp` condition missed were in a relevant section just below the results
-  shown. Replaying the model's own first searches, a fourth section raised the share
-  of answer-key facts in the first response from 0.77 to 0.81 (0.81 to 0.85 after a
-  get of `best_section`). Responses grew from about 3,600 to 4,200 characters and
-  stay under 5,000; each extra model call this saves re-sends about 2,900 tokens of
-  prompt and tool definitions. Attaching the packet's Actions section instead (the
-  section that held several misses) added only 0.003.
-- Tool and parameter descriptions and the server instructions are written to be
-  short, because every model call re-sends them: in the first run they were about
-  1,200 of the roughly 2,900 input tokens of each `mcp` model call. The rewrite keeps
-  every required instruction and cuts the model-visible tool definitions plus
-  instructions from 1,222 to 976 `o200k_base` tokens per call.
-- Requirement-label queries always show the requirement: 3.1.1 quotes the indexed
-  excerpt (as required); 5.0 windows the printed label, falling back to the
-  excerpt for the two labels reconciled from Appendix B.
-- `next_step` names `best_section`, allows another listed section whose snippet
-  fits better, and keeps the required "Do not search again for this question." It
-  starts by saying snippets are partial excerpts, to answer from them only if they
-  state every fact the question asks for: in the first full agent benchmark run,
-  47 of 120 MCP 5.0 runs answered from a single search, and most facts the MCP
-  condition missed against the full-spec condition were outside what it had read.
-  The server instructions also tell the agent to consult the tools before answering
-  (4 of those 120 runs answered from memory and scored 0.59 on average).
+- Search returns an evidence pack, as Markdown, instead of a JSON list of ranked
+  results with snippets. Ranking is unchanged; the pack takes the 8 best-ranked
+  sections, splits their bodies into sentences (each line, split after `.`, `;`,
+  `!`, `?`), scores every sentence by the idf of the distinct query terms it
+  contains (+5 for the whole query phrase, +3 for any sentence of the best-ranked
+  section), doubles the score of a normative sentence (MUST, SHOULD, MAY, REQUIRED,
+  SHALL or a requirement label), divides it by 1 + 0.15 × the section's rank, and
+  adds sentences best first, each followed by its next and previous
+  sentence, while the excerpts and their `## <id> <title>` headings fit 5,500
+  characters. Sections appear in rank order, sentences in document order with
+  ` ... ` between non-adjacent ones; a sentence of 30 or more characters already
+  shown in a higher-ranked section is skipped (the CONNECT and CONNACK copies of a
+  property share most of their text). Requirement-label queries show the
+  requirement in its home section (1,600 characters) and the sections that list it
+  (400 each): 3.1.1 quotes the indexed excerpt, 5.0 windows the printed label,
+  falling back to the excerpt for the two labels reconciled from Appendix B.
+  Section-id queries show that section from its start (3,000 characters).
+- Why: in the first full agent runs most facts the `mcp` condition missed were in
+  a relevant section the model never read, usually ranked just below the results
+  shown, and each extra model call re-sends about 2,700 tokens of prompt and tool
+  definitions. Replaying the model's own first searches, the previous response
+  (1,600-character first snippet, 640 for each later result, a `parent_context`)
+  held 0.80 of the answer-key facts in about 1,190 `o200k_base` tokens; the pack
+  holds 0.88 in about 1,550, more than that response plus a get of its best
+  section (0.85). Earlier steps on the same path: query-focused passages instead
+  of one window per snippet (0.67 to 0.72 at the same size), 640-character later
+  snippets (0.77), a fourth result (0.81). Doubling normative sentences (0.89)
+  and the best section's base score (0.90, same size) came after: answer keys turn
+  on rules, and the base score fills a list of conditions in the best section
+  (Receive Maximum's quota rules, say) before single-term matches in sections
+  ranked lower. Re-ranking by best single-sentence coverage, title
+  diversification, attaching the packet's Actions section, keeping list items
+  together and a budget scaled by the number of query terms were measured and
+  rejected (at most +0.01 at the same size, or lower retrieval metrics).
+- The pack ends with the next step: state each rule in the excerpts that bears on
+  the question, with its MUST/SHOULD/MAY and conditions, and cite its section; if
+  a needed rule is missing, get one listed section; "Do not search again for this
+  question." With no match it says nothing matched in this version, that this is
+  not proof of absence, and that it says nothing about any other version.
+- The tools advertise only the parameters agents used in 803 benchmark runs
+  (`outline` 7 calls, search's optional parameters 9 uses in 886 searches): outline
+  `parent`; search `query`; get `section`, `cursor`; lookup `kind`, `query`,
+  `packet`. The others (`depth`, `chapter`, `limit`, `normative_only`,
+  `include_subsections`, `max_chars`) are still accepted. Descriptions and the
+  server instructions are short, keeping the version-safety rules. Together the
+  model-visible tool definitions and instructions fell from 1,222 to 597
+  `o200k_base` tokens per call; the scope sentence in every result is shorter too.
+- The server instructions tell the agent to consult the tools before answering (in
+  the first full run 4 of 120 MCP 5.0 runs answered from memory and scored 0.59).
 
 ## Section resolution
 
@@ -207,8 +208,20 @@ appear in the body.
 ## Lookup
 
 - Return-code and packet `code` fields are hex strings (`0x00`).
-- A single property result always has `details`; it is empty without a packet
-  filter.
+- Lookup results carry the spec text that answers about the entity, so a lookup
+  rarely needs a follow-up get: a packet's `summary` (its section's first 600
+  characters), the prose of its fixed header section as `fixed_header` (400;
+  DISCONNECT's reserved-bits rule with 0x81) and `remaining_length` where the fixed
+  header figure fixes it; a property's `details` (excerpts of 700 characters with
+  their requirement labels); and for at most three reason or return codes, the row
+  of each packet's own code table as `meanings` (with `sent_by` where the table has
+  that column). In the evidence-pack benchmark runs that used only lookups, the
+  results held 0.76 of the answer-key facts; with this text they hold 0.88, for
+  about 460 more characters per lookup.
+- A single property result always has `details`: with a packet filter, the
+  sections in that packet's subtree; without one, every defining section except
+  the 2.2.2.2 table when there are at most three, else none (User Property and
+  Reason String are defined in 15 and 10 sections).
 - `return_code` requires the packet filter to resolve to CONNACK or SUBACK (by
   name, number, or "connack packet").
 - A `reason_code` query that is a packet name ("CONNECT") is answered with an error

@@ -47,6 +47,12 @@ PASSAGE_PHRASE_BONUS = 5.0
 PACK_CHARS = 5500
 PACK_SECTIONS = 8
 PACK_RANK_PRIOR = 0.15
+# Every sentence of the best section scores at least this much, so spare budget fills
+# its gaps (a list of conditions, say) before weak matches in lower-ranked sections.
+PACK_TOP_SECTION_BASE = 3.0
+# Answer keys and questions turn on normative rules: such sentences count double.
+PACK_NORMATIVE_BOOST = 1.0
+NORMATIVE_SENTENCE = re.compile(r"\b(?:MUST|SHOULD|MAY|REQUIRED|SHALL)\b|\[MQTT-")
 LABEL_SECTIONS = 3
 LABEL_FIRST_CHARS = 1600
 LABEL_OTHER_CHARS = 400
@@ -295,9 +301,11 @@ class SearchIndex:
     ) -> list[tuple[_Doc, str]]:
         """Query-focused excerpts drawn from several ranked sections at once.
 
-        Every sentence of the candidate sections is scored like ``passages`` and
-        discounted by its section's rank; sentences are added best first, each with
-        its neighbours, while the excerpts plus section headings fit ``budget``.
+        Every sentence of the candidate sections scores the idf of the query terms
+        it contains (plus a phrase bonus); sentences of the best section also get a
+        base score, normative sentences count double, and every score is discounted
+        by its section's rank. Sentences are added best first, each with its
+        neighbours, while the excerpts plus section headings fit ``budget``.
         Sections come back in rank order, sentences in document order."""
         terms = query_terms(query)
         patterns = [
@@ -320,7 +328,11 @@ class SearchIndex:
                 )
                 if phrase and phrase in " ".join(segment.split()):
                     score += PASSAGE_PHRASE_BONUS
+                if rank == 0:
+                    score += PACK_TOP_SECTION_BASE
                 if score > 0:
+                    if NORMATIVE_SENTENCE.search(body[start:end]):
+                        score *= 1 + PACK_NORMATIVE_BOOST
                     candidates.append((score / (1 + PACK_RANK_PRIOR * rank), rank, i))
         candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
         chosen: dict[int, set[int]] = {}

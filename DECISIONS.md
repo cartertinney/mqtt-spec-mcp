@@ -247,6 +247,15 @@ appear in the body.
   citation ("per section 4.8, ...") does not end a match. Lookup cases accept the
   packet-specific section or the summary table (2.1.x, 2.2.2.2, 2.4) in one
   citation group, since either states the requested facts.
+- Scorer 1.3.1, from the 3.1.1 key review: version numbers are not citations.
+  "5.0" is never a section number in either specification, and a bare "3.1.1" is
+  the version label (231 of 231 bare uses in the first full run), so it counts as
+  section 3.1.1 only after "section", "sec." or "§" (also within a list such as
+  "sections 3.1 and 3.1.1"). Before, any "3.1.1" satisfied citation groups for
+  3.1 or chapter 3, and any "5.0" satisfied groups for chapter 5. The check for a
+  pattern that spells out its own negation now matches whole words only (also after
+  an escape such as `\b`), so `in[- ]?flight` or "another" no longer switch off the
+  self-negation check.
 - All four agent conditions are implemented as in-process tools with identical
   loop and limits (12 tool calls), and each reaches the same material: the
   specification(s) the case is about. `full_spec` and `grep` get that text; `mcp`

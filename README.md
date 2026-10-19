@@ -320,6 +320,27 @@ change and compared against stored results for the others. Answer keys are not p
 of the question hash: use `--rescore` to apply corrected keys or a newer scorer to
 stored answers offline.
 
+### Latest results
+
+[benchmarks/results/2026-10-19-claude-sonnet-5.md](benchmarks/results/2026-10-19-claude-sonnet-5.md)
+has the full report: Claude Sonnet 5 through the Copilot SDK, all 200 cases, one
+epoch.
+
+| condition | quality | pass rate | tokens/question | latency (mean) | model calls |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `full_spec` | 0.996 | 97.0% | 90,445 | 7.3 s | 1.00 |
+| `grep` | 0.976 | 88.5% | 9,180 | 9.4 s | 2.98 |
+| `mcp` | 0.968 | 86.0% | 10,644 | 9.0 s | 2.37 |
+| `none` | 0.879 | 60.0% | 1,000 | 8.3 s | 1.00 |
+
+With this server the model used 88% fewer tokens than with the whole specification
+in its prompt, but scored 2.8 points lower (95% CI 1.4 to 4.3). Most of those
+misses were in a second relevant section it never read. It also took about 23%
+longer, because it needs a tool round trip and the full-specification prompt was
+served from the prompt cache. So the token-reduction gate passes and the quality
+and speed gates do not. A plain grep tool over the same text did about as well as
+this server.
+
 ## Development
 
 ```bash

@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .cases import Case, FactPattern
 
-SCORER_VERSION = "1.3.0"
+SCORER_VERSION = "1.3.1"
 FACT_WEIGHT = 0.8
 CITATION_WEIGHT = 0.2
 NEGATION_WINDOW = 48
@@ -63,8 +63,13 @@ _NOT_NEGATING = re.compile(
     re.IGNORECASE,
 )
 # A pattern that spells out its own negation handles negation itself.
+# Negation words in regex source: whole words, also after an escape such as \b or \s,
+# and n't spelled with a quote class (n['’]t).
 _PATTERN_NEGATION = re.compile(
-    r"not|n't|n\[|never|\bno\b|without|cannot|neither|\bnor\b|none", re.IGNORECASE
+    r"(?:(?<![a-z])|(?<=\\[bsW]))"
+    r"(?:not|no|never|without|cannot|neither|nor|none)(?![a-z])"
+    r"|n't|n\[[^\]]*'[^\]]*\]t",
+    re.IGNORECASE,
 )
 _SECTION_REF = re.compile(
     r"(?<![\w.])(?:§\s*)?(\d{1,2}(?:\.\d{1,3}){1,5})(?![\w]|\.\d)"
@@ -73,6 +78,12 @@ _CHAPTER_REF = re.compile(
     r"(?:\b(?:section|chapter)|§)\s*(\d)(?!\d|\.\d)", re.IGNORECASE
 )
 _VERSION_PREFIX = re.compile(r"(?:mqtt|version|v)\s*$", re.IGNORECASE)
+# Version numbers that read like section numbers: "5.0" is not a section in either
+# specification, and a bare "3.1.1" is the version unless marked as a section.
+_SECTION_MARKER = re.compile(
+    r"(?:\bsections?|\bsec\.|§)\s*(?:\d+(?:\.\d+)*\s*(?:,|and|or|&|/)\s*)*$",
+    re.IGNORECASE,
+)
 _WORD = re.compile(r"\b[\w'’-]+\b")
 
 
@@ -177,9 +188,14 @@ def matches_fact(answer: str, patterns: list[str], polarity: str) -> bool:
 def cited_sections(answer: str) -> set[str]:
     cited: set[str] = set()
     for match in _SECTION_REF.finditer(answer):
-        if _VERSION_PREFIX.search(answer[max(0, match.start() - 12) : match.start()]):
+        number = match.group(1)
+        before = answer[max(0, match.start() - 40) : match.start()]
+        if _VERSION_PREFIX.search(before[-12:]) or number == "5.0":
             continue
-        cited.add(match.group(1))
+        marked = match.group(0).startswith("§") or _SECTION_MARKER.search(before)
+        if number == "3.1.1" and not marked:
+            continue
+        cited.add(number)
     cited.update(m.group(1) for m in _CHAPTER_REF.finditer(answer))
     return cited
 

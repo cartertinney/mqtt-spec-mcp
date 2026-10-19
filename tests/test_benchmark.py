@@ -153,6 +153,22 @@ def test_citation_detection_ignores_version_numbers() -> None:
     assert "4" in cited
     assert "5.0" not in cited
     assert "3.1.1" not in cited
+    assert cited_sections("In 3.1.1 the broker closes; in 5.0 it sends one.") == set()
+    assert "3.1.1" in cited_sections("The fixed header (section 3.1.1) holds it.")
+    assert "3.1.1" in cited_sections("See sections 3.1 and 3.1.1.")
+    assert "3.1.1" in cited_sections("See §3.1.1.")
+
+
+def test_pattern_negation_detection() -> None:
+    def spells_negation(source: str) -> bool:
+        return matches_fact("The Will is not published.", [source], "affirm")
+
+    # Patterns without a negation word get the self-negation check ...
+    assert not spells_negation(r"will\s+(?:\w+\s+){0,2}published")
+    assert not spells_negation(r"will(?:[- ]?another)?\s+(?:\w+\s+){0,2}published")
+    # ... patterns that spell out a negation handle it themselves.
+    assert spells_negation(r"will\s+is\s+not\s+published")
+    assert spells_negation(r"will\s+(?:\w+\s+){0,2}?(?:\bnot\b\s+)?published")
 
 
 def test_score_formula_and_pass() -> None:

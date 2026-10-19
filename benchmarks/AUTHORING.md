@@ -68,6 +68,8 @@ stays independent of the unit tests.
 
 ## Review outcome
 
+### MQTT 5.0 set
+
 Both reviewers found **no incorrect specification facts, normative strengths or
 requirement labels**. They reported 12 errors and 74 warnings, all about scoring
 robustness:
@@ -81,3 +83,40 @@ robustness:
 All errors and 73 warnings were addressed; skipped warnings were checked against
 the spec first. The corpus was revalidated (120 cases, 0 problems) before any
 scored run.
+
+### MQTT 3.1.1 and comparison sets
+
+The reviewers reported 62 errors and 17 warnings across the 80 cases. Several
+reference answers needed corrections or qualifications (for example, a comparison
+answer said 5.0 "adds" CONNACK codes that are the 5.0 forms of 3.1.1 return codes,
+and a 3.1.1 answer said clients "must rely on TLS" where the specification also
+lists a VPN), and three comparison prompts were reworded and their cases re-run:
+one had the CONNACK direction backwards, one did not ask about the 3.1.1 behaviour
+its key checked, and one could be read two ways. Most findings were about scoring
+robustness:
+
+- Fact regexes that rejected the prompt's own wording, tables, bullet lists or
+  reversed order, and windows that stopped at the dot in an inline section number.
+- Fact regexes that credited wrong answers, mostly through a negation inside the
+  matched text ("the Will is not published").
+- Forbidden claims that flagged correct contrasts with the other version
+  ("MQTT 5.0: the server sends DISCONNECT ...").
+- Facts and citation groups that the prompt did not ask for.
+
+Scorer-level causes were fixed in the scorer (1.3.0 and 1.3.1, see DECISIONS.md),
+the rest in the keys.
+
+### Checking keys against real answers
+
+After the first full agent run, every case's key (all 200) was also checked
+against the four stored answers to it, shown without the condition that produced
+them: a failing answer that was correct for a fact led to a broader key, and a
+passing answer with wrong content to a tighter one or a new forbidden claim.
+Facts that only restated the prompt, or demanded an optional detail (0x82 for a
+repeated CONNECT is MAY/SHOULD), were dropped. Across the 985 distinct stored
+answers this turned 311 failing answers into passes and 3 passes into failures
+(an answer claiming a 3.1.1 Server MUST accept an empty ClientId, one credited only
+through text about the other version, and one with a wrong reason code); every
+remaining failure was checked as a real error or omission. As a check on leniency,
+each case was scored against 5 reference answers of other cases of the same
+version: 3 of 1,000 passed, all on near-duplicate topics.

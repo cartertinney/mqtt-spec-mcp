@@ -115,15 +115,16 @@ call with version 3.1.1 returns 14.
 ### `mqtt_spec_search`
 
 `version`, `query`, `chapter` (restrict to a section's subtree, optional), `limit`
-(1–5, default 3), `normative_only` (only sections with requirement labels).
+(1–5, default 4), `normative_only` (only sections with requirement labels).
 
 ```json
 {"version": "5.0", "query": "Shared Subscription", "chapter": "4"}
 ```
 
 The first result has a long snippet (about 1,600 characters), often enough to answer
-on its own, plus a `parent_context` snippet. Later results share about 1,280
-characters (about 640 each at the default limit of 3, 320 each at limit 5). Snippets of longer sections are made of the sentences that match the
+on its own, plus a `parent_context` snippet. Later results share about 1,920
+characters (about 640 each at the default limit of 4, 480 each at limit 5), and they
+give up room as needed to keep every response under 5,000 characters. Snippets of longer sections are made of the sentences that match the
 query best, each with a neighbouring sentence for context, in document order, with
 `...` marking every cut. `requirements` lists the labels in each snippet, and
 `best_section` and `next_step` say what to do next. A query can be prose, a section

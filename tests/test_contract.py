@@ -58,7 +58,7 @@ def test_tools_list_contract() -> None:
         assert version["enum"] == ["3.1.1", "5.0"]
         assert "default" not in version
     props = {t.name: t.input_schema["properties"] for t in TOOLS}
-    assert props["mqtt_spec_search"]["limit"]["default"] == 3
+    assert props["mqtt_spec_search"]["limit"]["default"] == 4
     assert props["mqtt_spec_search"]["limit"]["maximum"] == 5
     assert props["mqtt_spec_get"]["max_chars"]["maximum"] == 12000
     assert props["mqtt_spec_get"]["max_chars"]["default"] == 4000

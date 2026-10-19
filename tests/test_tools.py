@@ -95,7 +95,7 @@ def test_search_default_size_bound(call: Call, version: str, query: str) -> None
     outcome = call("mqtt_spec_search", version=version, query=query)
     assert not outcome.is_error
     assert len(outcome.text) < 5000
-    assert len(json.loads(outcome.text)["results"]) <= 3
+    assert len(json.loads(outcome.text)["results"]) <= 4
 
 
 def test_search_section_id_query(ok: JsonCall) -> None:

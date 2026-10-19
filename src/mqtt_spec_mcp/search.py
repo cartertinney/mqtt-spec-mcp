@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections import Counter
@@ -43,7 +44,10 @@ BOOST_BODY_PAIR = 2.0
 FIRST_SNIPPET_CHARS = 1600
 OTHER_SNIPPET_CHARS = 640
 # Later results share this budget, so a larger limit does not grow the response.
-LATER_SNIPPETS_CHARS = 1280
+LATER_SNIPPETS_CHARS = 1920
+MIN_LATER_SNIPPETS_CHARS = 480
+# Search responses stay under 5,000 characters of compact JSON.
+MAX_SEARCH_CHARS = 4900
 PARENT_SNIPPET_CHARS = 700
 PASSAGE_PHRASE_BONUS = 5.0
 MAX_QUERY_TERMS = 32
@@ -499,40 +503,44 @@ def search(
     if label is not None and label not in engine.requirements:
         label = None
 
-    results: list[dict[str, Any]] = []
-    for position, (_, doc) in enumerate(ranked):
-        info = doc.info
-        budget = (
-            FIRST_SNIPPET_CHARS
-            if position == 0
-            else min(OTHER_SNIPPET_CHARS, LATER_SNIPPETS_CHARS // (len(ranked) - 1))
-        )
-        in_section = label is not None and label in info.section.requirements
-        if in_section and label is not None:
-            snippet = _label_snippet(engine, info, label, budget)
-        else:
-            snippet = index.passages(info.body, query, budget)
-        entry: dict[str, Any] = {
-            "section": info.id,
-            "title": info.title,
-            "snippet": snippet,
-            "requirements": snippet_labels(
-                engine, snippet, label if in_section else None
-            ),
-        }
-        if position == 0 and info.section.parent is not None:
-            parent = engine.sections[info.section.parent]
-            if parent.body.strip():
-                entry["parent_context"] = {
-                    "section": parent.id,
-                    "title": parent.title,
-                    "snippet": index.passages(parent.body, query, PARENT_SNIPPET_CHARS),
-                }
-        results.append(entry)
+    def build(later_budget: int) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        for position, (_, doc) in enumerate(ranked):
+            info = doc.info
+            budget = (
+                FIRST_SNIPPET_CHARS
+                if position == 0
+                else min(OTHER_SNIPPET_CHARS, later_budget // (len(ranked) - 1))
+            )
+            in_section = label is not None and label in info.section.requirements
+            if in_section and label is not None:
+                snippet = _label_snippet(engine, info, label, budget)
+            else:
+                snippet = index.passages(info.body, query, budget)
+            entry: dict[str, Any] = {
+                "section": info.id,
+                "title": info.title,
+                "snippet": snippet,
+                "requirements": snippet_labels(
+                    engine, snippet, label if in_section else None
+                ),
+            }
+            if position == 0 and info.section.parent is not None:
+                parent = engine.sections[info.section.parent]
+                if parent.body.strip():
+                    entry["parent_context"] = {
+                        "section": parent.id,
+                        "title": parent.title,
+                        "snippet": index.passages(
+                            parent.body, query, PARENT_SNIPPET_CHARS
+                        ),
+                    }
+            results.append(entry)
+        return results
 
     v = engine.version
-    best = results[0]["section"] if results else None
-    if results:
+    best = ranked[0][1].info.id if ranked else None
+    if ranked:
         next_step = (
             "Snippets are partial excerpts. Answer from them only if they state every "
             "fact the question asks for, with its conditions. "
@@ -553,12 +561,21 @@ def search(
             "query": query,
             "chapter": root.id if root else None,
             "normative_only": normative_only,
-            "results": results,
+            "results": [],
             "best_section": best,
             "next_step": next_step,
         }
     )
-    return result
+    # Later results give up snippet room until the response fits the size bound.
+    later_budget = LATER_SNIPPETS_CHARS
+    while True:
+        result["results"] = build(later_budget)
+        size = len(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+        if size <= MAX_SEARCH_CHARS or later_budget <= MIN_LATER_SNIPPETS_CHARS:
+            return result
+        later_budget = max(
+            MIN_LATER_SNIPPETS_CHARS, later_budget - (size - MAX_SEARCH_CHARS) - 40
+        )
 
 
 def _label_snippet(

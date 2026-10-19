@@ -118,8 +118,10 @@ appear in the body.
   separate set of 45 practitioner queries, and title self-retrieval together,
   taking values from the flat middle of the range rather than the single best.
 - Snippets: 1,600 characters for the first result, 700 for `parent_context`, and
-  1,280 shared by the later results, at most 640 each (640 at the default limit of
-  3, 320 at limit 5); all limits include the `...` markers. A text within the budget
+  1,920 shared by the later results, at most 640 each (640 at the default limit of
+  4, 480 at limit 5); all limits include the `...` markers. If the compact JSON
+  response would exceed 4,900 characters, the later results' share shrinks (to no
+  less than 480 in total) until it fits, so responses stay under 5,000 characters. A text within the budget
   is returned whole. Longer texts get query-focused passages rather than one window:
   the body is split into sentences (each line, split after `.`, `;`, `!`, `?`), each
   sentence is scored by the idf of the distinct query terms it contains (+5 when it
@@ -138,8 +140,20 @@ appear in the body.
   (0.77 to 0.81 after a get of `best_section`) for about 600 more characters, with
   search responses averaging about 3,900 characters. Most facts the MCP condition
   missed were in the second or third result, which a 320-character snippet rarely
-  reached. The default `limit` stays 3, and later results share a fixed budget so
-  a search with `limit` 5 stays under 5,000 characters.
+  reached.
+- The default `limit` is 4, not 3: the first full agent run showed that most facts
+  the `mcp` condition missed were in a relevant section just below the results
+  shown. Replaying the model's own first searches, a fourth section raised the share
+  of answer-key facts in the first response from 0.77 to 0.81 (0.81 to 0.85 after a
+  get of `best_section`). Responses grew from about 3,600 to 4,200 characters and
+  stay under 5,000; each extra model call this saves re-sends about 2,900 tokens of
+  prompt and tool definitions. Attaching the packet's Actions section instead (the
+  section that held several misses) added only 0.003.
+- Tool and parameter descriptions and the server instructions are written to be
+  short, because every model call re-sends them: in the first run they were about
+  1,200 of the roughly 2,900 input tokens of each `mcp` model call. The rewrite keeps
+  every required instruction and cuts the model-visible tool definitions plus
+  instructions from 1,222 to 976 `o200k_base` tokens per call.
 - Requirement-label queries always show the requirement: 3.1.1 quotes the indexed
   excerpt (as required); 5.0 windows the printed label, falling back to the
   excerpt for the two labels reconciled from Appendix B.

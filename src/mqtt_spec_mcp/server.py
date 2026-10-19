@@ -35,40 +35,27 @@ SERVER_DESCRIPTION = (
 WEBSITE_URL = "https://www.oasis-open.org/committees/mqtt/"
 
 INSTRUCTIONS = """\
-Evidence tools for the OASIS MQTT 3.1.1 and MQTT 5.0 specifications. Each call reads \
-exactly one version.
+OASIS MQTT 3.1.1 and 5.0 specification evidence. Each call reads one version.
 
-Versions
-- Pass version explicitly on every call ("3.1.1" or "5.0"). If the user has not said \
-which version they mean, ask; do not assume the latest.
-- Never carry section numbers, requirement labels, field names or numeric codes from \
-one version to the other. The same number can mean different things (3.1.2.4 is Clean \
-Session in 3.1.1 but Clean Start in 5.0).
-- To compare versions, run the workflow once per version and cite the version next to \
-every section and claim. A hit, miss, identifier or cursor from one version is never \
+- Pass version ("3.1.1" or "5.0") on every call; if the user named none, ask rather \
+than assume the latest.
+- Never carry section numbers, labels, fields or codes between versions: 3.1.2.4 is \
+Clean Session in 3.1.1 but Clean Start in 5.0. 3.1.1 has Clean Session and return \
+codes; 5.0 has Clean Start, Session Expiry, properties and reason codes.
+- To compare versions, run the workflow per version and cite the version with every \
+section and claim; a result, miss, identifier or cursor from one version is no \
 evidence about the other.
-- Vocabulary differs: 3.1.1 has Clean Session and return codes; 5.0 has Clean Start, \
-Session Expiry, properties and reason codes.
-
-Workflow
-- Consult these tools before answering a question about MQTT protocol details; do not \
-answer from memory.
-- Pick one starting tool; avoid speculative or parallel calls.
-- mqtt_spec_lookup: only for one exact, recognized entity (packet, property, \
-reason_code, return_code, requirement label, glossary term).
-- mqtt_spec_search: one combined query for everything else, including questions that \
-involve several entities or need synthesis.
-- Never invent an identifier that neither the user nor earlier evidence supplied.
-- If a lookup result or the search snippets already state every fact the question asks \
-for, answer immediately; snippets are partial excerpts. Otherwise call mqtt_spec_get \
-once for best_section. Use mqtt_spec_outline only to browse or resolve genuine \
-ambiguity. Stop as soon as the evidence is sufficient.
-
-Answering
-- Preserve normative strength (MUST, SHOULD, MAY) and every condition, direction, \
-scope and exception.
-- Prefer narrow retrieval and cursors over pulling large subsections. Excerpts are \
-transformed text; the OASIS publication remains authoritative.
+- Consult the tools before answering; never invent an identifier that neither the \
+user nor the evidence gave.
+- Start with one tool; no speculative or parallel calls. Lookup is only for one exact \
+entity (packet, property, reason/return code, requirement label, glossary term); \
+otherwise use one combined search, also for multi-entity or synthesis questions.
+- Snippets are partial excerpts. If they or a lookup state every fact asked, answer; \
+otherwise get best_section once. Use outline only to browse or resolve real \
+ambiguity. Stop once the evidence is sufficient.
+- Keep MUST/SHOULD/MAY and every condition, direction, scope and exception. Prefer \
+narrow reads and cursors to large subsection pulls; excerpts are transformed and the \
+OASIS publication is authoritative.
 """
 
 Version = Literal["3.1.1", "5.0"]
@@ -77,7 +64,7 @@ NonEmpty = Annotated[str, Field(min_length=1)]
 VERSION_SCHEMA: dict[str, Any] = {
     "type": "string",
     "enum": list(SUPPORTED_VERSIONS),
-    "description": "MQTT version to read. Required on every call; there is no default.",
+    "description": "MQTT version.",
 }
 NULLABLE_STRING: dict[str, Any] = {"type": ["string", "null"], "default": None}
 ANNOTATIONS = types.ToolAnnotations(
@@ -163,7 +150,7 @@ class OutlineArgs(_Args):
 class SearchArgs(_Args):
     query: NonEmpty
     chapter: str | None = None
-    limit: Annotated[int, Field(ge=1, le=5)] = 3
+    limit: Annotated[int, Field(ge=1, le=5)] = 4
     normative_only: bool = False
 
 
@@ -196,24 +183,22 @@ TOOLS: tuple[types.Tool, ...] = (
         name="mqtt_spec_outline",
         title="MQTT spec outline",
         description=(
-            "List section ids and titles (no body text) for one MQTT version. Without "
-            "parent: sections down to depth (depth 1 = chapters 1-7). With parent: "
-            "that section's descendants down to depth levels below it. Use for "
-            "browsing or resolving ambiguity, not as a first step for ordinary "
-            "questions."
+            "Section ids and titles of one MQTT version, for browsing or resolving "
+            "ambiguity, not as a first step. Without parent: down to depth (1 = "
+            "chapters); with parent: its descendants."
         ),
         input_schema=_schema(
             {
                 "parent": {
                     **NULLABLE_STRING,
-                    "description": "Section id (e.g. '3') or unambiguous title.",
+                    "description": "Section id or title.",
                 },
                 "depth": {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 5,
                     "default": 1,
-                    "description": "Levels to list below parent (or from the top).",
+                    "description": "Levels to list.",
                 },
             },
             [],
@@ -224,33 +209,32 @@ TOOLS: tuple[types.Tool, ...] = (
         name="mqtt_spec_search",
         title="MQTT spec search",
         description=(
-            "Rank sections of one MQTT version for a natural-language query, section "
-            "id or requirement label. The first result carries a long snippet that "
-            "often answers the question; follow next_step. Use one combined query per "
-            "question."
+            "Ranked sections of one MQTT version with query-focused snippets, for a "
+            "question, section id or requirement label. One combined query per "
+            "question; follow next_step."
         ),
         input_schema=_schema(
             {
                 "query": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Words, a section id or a requirement label.",
+                    "description": "Question words, section id or requirement label.",
                 },
                 "chapter": {
                     **NULLABLE_STRING,
-                    "description": "Restrict to this section id/title and its subtree.",
+                    "description": "Only this section's subtree.",
                 },
                 "limit": {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 5,
-                    "default": 3,
+                    "default": 4,
                     "description": "Number of results.",
                 },
                 "normative_only": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Only sections with labeled normative requirements.",
+                    "description": "Only sections with requirement labels.",
                 },
             },
             ["query"],
@@ -261,32 +245,31 @@ TOOLS: tuple[types.Tool, ...] = (
         name="mqtt_spec_get",
         title="MQTT spec get section",
         description=(
-            "Return one section of one MQTT version as Markdown, never longer than "
-            "max_chars. If the footer says 'Truncated: yes', call again with the same "
-            "arguments plus the Next cursor value to continue."
+            "One section of one MQTT version as Markdown, at most max_chars. If the "
+            "footer says 'Truncated: yes', repeat the call with its Next cursor."
         ),
         input_schema=_schema(
             {
                 "section": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Section id (e.g. '3.1.2.4') or unambiguous title.",
+                    "description": "Section id or title.",
                 },
                 "include_subsections": {
                     "type": "boolean",
                     "default": False,
-                    "description": "Append all descendant sections.",
+                    "description": "Append descendant sections.",
                 },
                 "max_chars": {
                     "type": "integer",
                     "minimum": 1000,
                     "maximum": 12000,
                     "default": 4000,
-                    "description": "Page size limit in characters.",
+                    "description": "Page size.",
                 },
                 "cursor": {
                     **NULLABLE_STRING,
-                    "description": "Opaque cursor from the previous page.",
+                    "description": "Next cursor from the previous page.",
                 },
             },
             ["section"],
@@ -297,26 +280,25 @@ TOOLS: tuple[types.Tool, ...] = (
         name="mqtt_spec_lookup",
         title="MQTT spec lookup",
         description=(
-            "Exact lookup of one recognized entity in one MQTT version: packet, "
-            "property (5.0), reason_code (5.0), return_code (3.1.1, needs packet "
-            "CONNACK or SUBACK), requirement label, or glossary term. Query by exact "
-            "name, decimal, 0x hex or label. Use search for anything else."
+            "Exact lookup of one entity in one MQTT version: packet, property or "
+            "reason_code (5.0), return_code (3.1.1; packet CONNACK or SUBACK), "
+            "requirement label or glossary term. Use search for anything else."
         ),
         input_schema=_schema(
             {
                 "kind": {
                     "type": "string",
                     "enum": list(KINDS),
-                    "description": "Entity catalog to search.",
+                    "description": "Catalog.",
                 },
                 "query": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "Exact name, decimal, 0x hex value or label.",
+                    "description": "Exact name, decimal, 0x hex or label.",
                 },
                 "packet": {
                     **NULLABLE_STRING,
-                    "description": "Packet filter: property, reason_code, return_code.",
+                    "description": "Packet filter for property, reason_code, return_code.",
                 },
             },
             ["kind", "query"],

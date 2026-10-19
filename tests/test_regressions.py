@@ -502,10 +502,25 @@ def test_overlong_best_sentence_falls_back_to_a_window(
 
 
 def test_later_results_share_a_fixed_snippet_budget(call: Call) -> None:
-    for limit, cap in ((3, 640), (5, 320)):
+    for limit, cap in ((3, 640), (4, 640), (5, 480)):
         outcome = call("mqtt_spec_search", version="5.0", query="session", limit=limit)
         result = json.loads(outcome.text)
         later = result["results"][1:]
         assert len(later) == limit - 1
         assert all(len(r["snippet"]) <= cap for r in later)
         assert len(outcome.text) < 5000
+
+
+def test_search_responses_stay_under_5000_characters(call: Call) -> None:
+    queries = (
+        "Topic Alias Maximum protocol error",
+        "shared subscription",
+        "will delay",
+    )
+    for version in ("3.1.1", "5.0"):
+        for query in queries:
+            for limit in (3, 4, 5):
+                outcome = call(
+                    "mqtt_spec_search", version=version, query=query, limit=limit
+                )
+                assert len(outcome.text) < 5000, (version, query, limit)

@@ -11,9 +11,9 @@ specification into their context.
 - **Strict version isolation.** Every call names exactly one version. Nothing is
   inferred, defaulted, merged or carried over between 3.1.1 and 5.0.
 - Small responses and a small tool surface: one search returns an evidence pack of
-  about 5,500 characters drawn from several sections, `get` pages never exceed
+  about 6,000 characters drawn from several sections, `get` pages never exceed
   `max_chars`, and the tool definitions plus instructions an agent sees cost about
-  600 tokens per model call.
+  530 tokens per model call.
 
 The server returns source excerpts. The agent does the reasoning, and the OASIS
 publications remain the authoritative text.
@@ -122,7 +122,8 @@ call with version 3.1.1 returns 14.
 
 `version` and `query`: the question's key terms, a section id (`3.1.2.4`) or a
 requirement label (`MQTT-3.1.2-23`). `chapter` (restrict to a section's subtree),
-`limit` (1–8 sections, default 8) and `normative_only` are accepted.
+`limit` (1–8 sections; giving it also leaves out related requirements) and
+`normative_only` are accepted.
 
 ```json
 {"version": "5.0", "query": "Topic Alias 0 or above Topic Alias Maximum"}
@@ -135,9 +136,14 @@ those sections are taken first, each with a neighbouring sentence for context.
 Normative sentences (MUST, SHOULD, MAY or a requirement label) count double, and the
 best-ranked section's remaining sentences fill spare room before weak matches
 elsewhere. `...` marks every cut, and a sentence repeated word for word in a later
-section is shown once. A requirement-label query shows the requirement in its home
-section and the sections that list it; a section-id query shows that section from
-its start.
+section is shown once. Up to 700 more characters follow as related requirements:
+labelled requirement sentences (`[MQTT-...]`) from sections ranked below those eight
+that share at least two of the query's terms, most informative first, each under
+its own section heading. They catch a rule stated in a short section, such as
+PINGREQ Actions ("The Server MUST send a PINGRESP packet in response to a PINGREQ
+packet"), that ranks low as a section. A requirement-label query shows the
+requirement in its home section and the sections that list it; a section-id query
+shows that section from its start.
 
 ```text
 MQTT 5.0 only. Never apply its section numbers, labels, fields or codes to MQTT 3.1.1. Source: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html

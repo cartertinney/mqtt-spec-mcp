@@ -54,6 +54,11 @@ PACK_TOP_SECTION_BASE = 3.0
 # Answer keys and questions turn on normative rules: such sentences count double.
 PACK_NORMATIVE_BOOST = 1.0
 NORMATIVE_SENTENCE = re.compile(r"\b(?:MUST|SHOULD|MAY|REQUIRED|SHALL)\b|\[MQTT-")
+# Related requirements: labelled sentences from sections ranked below the pack that
+# share at least RELATED_MIN_TERMS query terms, best first, in RELATED_CHARS more.
+RELATED_SECTIONS = 40
+RELATED_CHARS = 700
+RELATED_MIN_TERMS = 2
 LABEL_SECTIONS = 3
 LABEL_FIRST_CHARS = 1600
 LABEL_OTHER_CHARS = 400
@@ -368,6 +373,63 @@ class SearchIndex:
             for r in sorted(chosen)
         ]
 
+    def related(
+        self, docs: list[_Doc], query: str, shown: list[str], budget: int
+    ) -> list[tuple[_Doc, str]]:
+        """Requirement sentences from ``docs`` (ranked below the pack) that share at
+        least RELATED_MIN_TERMS distinct query terms, scored by the idf of those
+        terms without a rank discount, best first while they fit ``budget``. A rule
+        stated in a short section (PINGREQ Actions) or one that does not repeat the
+        question's main term ranks low as a section but is often the rule asked
+        about. ``shown`` holds the pack's excerpts; sentences in them are skipped."""
+        terms = query_terms(query)
+        if len(terms) < RELATED_MIN_TERMS:
+            return []
+        patterns = [
+            re.compile(rf"(?<![0-9a-z]){re.escape(_prefix_form(t))}") for t in terms
+        ]
+        seen = " ".join(" ".join(shown).lower().split())
+        per_doc: list[list[tuple[int, int]]] = []
+        candidates: list[tuple[float, int, int]] = []
+        for rank, doc in enumerate(docs):
+            body = doc.info.body
+            units = _units(body)
+            haystack = match_form(body)
+            per_doc.append(units)
+            for i, (start, end) in enumerate(units):
+                if not LABEL_PATTERN.search(body[start:end]):
+                    continue
+                segment = haystack[start:end]
+                hits = [
+                    t for t, p in zip(terms, patterns, strict=True) if p.search(segment)
+                ]
+                if len(hits) < RELATED_MIN_TERMS:
+                    continue
+                if " ".join(body[start:end].lower().split()) in seen:
+                    continue
+                score = sum(self.idf.get(t, 0.0) for t in hits)
+                candidates.append((score, rank, i))
+        candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
+        chosen: dict[int, set[int]] = {}
+        sizes: dict[int, int] = {}
+        total = 0
+        for _, rank, i in candidates:
+            info = docs[rank].info
+            heading = len(info.id) + len(info.title) + 6
+            trial = chosen.get(rank, set()) | {i}
+            size = heading + _passage_size(per_doc[rank], trial)
+            if total + size - sizes.get(rank, 0) > budget:
+                continue
+            total += size - sizes.get(rank, 0)
+            chosen[rank], sizes[rank] = trial, size
+        return [
+            (
+                docs[r],
+                _render_passages(docs[r].info.body, per_doc[r], sorted(chosen[r])),
+            )
+            for r in sorted(chosen)
+        ]
+
     def anchor(self, text: str, query: str) -> int | None:
         """Where a snippet should focus: the first whole-word phrase match, else
         the start of the densest cluster of informative query terms."""
@@ -546,6 +608,7 @@ def search(
         engine, query, chapter, normative_only
     )
     index = engine.search_index
+    ranked = docs
     docs = docs[: limit or PACK_SECTIONS]
     sections: list[dict[str, Any]] = []
     if label is not None:
@@ -562,6 +625,16 @@ def search(
     elif docs:
         for doc, excerpt in index.evidence(docs, query, PACK_CHARS):
             sections.append(_entry(doc.info, excerpt))
+        if sections and limit is None:
+            shown = {entry["section"] for entry in sections}
+            below = [
+                doc
+                for doc in ranked[PACK_SECTIONS:RELATED_SECTIONS]
+                if doc.info.id not in shown
+            ]
+            excerpts = [entry["excerpt"] for entry in sections]
+            for doc, excerpt in index.related(below, query, excerpts, RELATED_CHARS):
+                sections.append(_entry(doc.info, excerpt))
         if not sections:
             info = docs[0].info
             sections.append(

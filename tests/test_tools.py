@@ -12,7 +12,7 @@ import pytest
 
 from mqtt_spec_mcp.engine import SpecEngine
 from mqtt_spec_mcp.render import build_fragments, fragment_limit, page_summary
-from mqtt_spec_mcp.search import PACK_CHARS, PACK_SECTIONS
+from mqtt_spec_mcp.search import PACK_CHARS, RELATED_CHARS
 from tests.conftest import Call, JsonCall, parse_search
 
 # Search ----------------------------------------------------------------------------
@@ -83,8 +83,7 @@ def test_search_topic_alias_scoped(call: Call) -> None:
 def test_search_default_size_bound(call: Call, version: str, query: str) -> None:
     outcome = call("mqtt_spec_search", version=version, query=query)
     assert not outcome.is_error
-    assert len(outcome.text) < PACK_CHARS + 700
-    assert len(parse_search(outcome.text)["results"]) <= PACK_SECTIONS
+    assert len(outcome.text) < PACK_CHARS + RELATED_CHARS + 700
 
 
 def test_search_section_id_query(ok: JsonCall) -> None:

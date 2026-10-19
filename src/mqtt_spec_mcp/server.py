@@ -50,12 +50,11 @@ need is missing. Never invent identifiers.
 Version = Literal["3.1.1", "5.0"]
 NonEmpty = Annotated[str, Field(min_length=1)]
 
-VERSION_SCHEMA: dict[str, Any] = {
-    "type": "string",
-    "enum": list(SUPPORTED_VERSIONS),
-    "description": "MQTT version.",
-}
-NULLABLE_STRING: dict[str, Any] = {"type": ["string", "null"], "default": None}
+# Advertised schemas are re-sent with every model call, so they carry only what a
+# model needs; the argument models below still accept null for optional parameters
+# and enforce non-empty strings.
+VERSION_SCHEMA: dict[str, Any] = {"type": "string", "enum": list(SUPPORTED_VERSIONS)}
+OPTIONAL_STRING: dict[str, Any] = {"type": "string"}
 ANNOTATIONS = types.ToolAnnotations(
     read_only_hint=True,
     destructive_hint=False,
@@ -175,7 +174,7 @@ TOOLS: tuple[types.Tool, ...] = (
         title="MQTT spec outline",
         description="Section ids and titles of one MQTT version, for browsing.",
         input_schema=_schema(
-            {"parent": {**NULLABLE_STRING, "description": "Section id."}}, []
+            {"parent": {**OPTIONAL_STRING, "description": "Section id."}}, []
         ),
         annotations=ANNOTATIONS,
     ),
@@ -190,7 +189,6 @@ TOOLS: tuple[types.Tool, ...] = (
             {
                 "query": {
                     "type": "string",
-                    "minLength": 1,
                     "description": "All the question's key terms.",
                 }
             },
@@ -209,10 +207,9 @@ TOOLS: tuple[types.Tool, ...] = (
             {
                 "section": {
                     "type": "string",
-                    "minLength": 1,
                     "description": "Section id or title.",
                 },
-                "cursor": {**NULLABLE_STRING, "description": "Next cursor."},
+                "cursor": {**OPTIONAL_STRING, "description": "Next cursor."},
             },
             ["section"],
         ),
@@ -223,17 +220,16 @@ TOOLS: tuple[types.Tool, ...] = (
         title="MQTT spec lookup",
         description=(
             "Exact entry for one packet, property or reason_code (5.0), return_code "
-            "(3.1.1; packet CONNACK or SUBACK), requirement label or glossary term."
+            "(3.1.1), requirement label or glossary term."
         ),
         input_schema=_schema(
             {
                 "kind": {"type": "string", "enum": list(KINDS)},
                 "query": {
                     "type": "string",
-                    "minLength": 1,
                     "description": "Exact name, number or label.",
                 },
-                "packet": {**NULLABLE_STRING, "description": "Packet filter."},
+                "packet": {**OPTIONAL_STRING, "description": "Packet filter."},
             },
             ["kind", "query"],
         ),
@@ -329,7 +325,14 @@ class MqttSpecService:
         args = SearchArgs.model_validate(raw)
         engine = self.engine(args.version)
         return render_search(
-            search(engine, args.query, args.chapter, args.limit, args.normative_only)
+            search(
+                engine,
+                args.query,
+                args.chapter,
+                # Without a limit the pack also adds related requirements.
+                args.limit if "limit" in args.model_fields_set else None,
+                args.normative_only,
+            )
         )
 
     def _get(self, raw: dict[str, Any]) -> str:

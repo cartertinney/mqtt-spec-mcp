@@ -17,6 +17,7 @@ from mqtt_spec_mcp.search import (
     MAX_QUERY_TERMS,
     PACK_CHARS,
     PACK_SECTIONS,
+    RELATED_CHARS,
     query_terms,
     search,
 )
@@ -482,9 +483,9 @@ def test_search_pack_fits_its_budget(call: Call) -> None:
     for version in ("3.1.1", "5.0"):
         for query in queries:
             text = call("mqtt_spec_search", version=version, query=query).text
-            assert len(text) < PACK_CHARS + 700, (version, query)
+            assert len(text) < PACK_CHARS + RELATED_CHARS + 700, (version, query)
             pack = parse_search(text)
-            assert 1 <= len(pack["results"]) <= PACK_SECTIONS
+            assert len(pack["results"]) >= 1
             assert all(r["snippet"].strip() for r in pack["results"])
             assert pack["scope"].startswith(f"MQTT {version} only.")
 
@@ -524,6 +525,18 @@ def test_evidence_pack_fills_the_best_section_first(ok: JsonCall) -> None:
     pack = ok("mqtt_spec_search", version="5.0", query=query)
     assert pack["results"][0]["section"] == "1.5.5"
     assert "268,435,455" in pack["results"][0]["snippet"]
+
+
+def test_evidence_pack_adds_related_requirements(ok: JsonCall) -> None:
+    query = "PINGREQ PINGRESP keep alive timeout close network connection"
+    pack = ok("mqtt_spec_search", version="5.0", query=query)
+    sections = [r["section"] for r in pack["results"]]
+    assert "3.12.4" in sections[PACK_SECTIONS - 2 :]  # ranked 17th, after the pack
+    related = next(r for r in pack["results"] if r["section"] == "3.12.4")
+    assert "MUST send a PINGRESP packet in response to a PINGREQ" in related["snippet"]
+    limited = ok("mqtt_spec_search", version="5.0", query=query, limit=PACK_SECTIONS)
+    assert "3.12.4" not in [r["section"] for r in limited["results"]]
+    assert len(limited["results"]) <= PACK_SECTIONS
 
 
 def test_evidence_excerpts_are_verbatim(engines: dict[str, SpecEngine]) -> None:

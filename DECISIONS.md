@@ -151,6 +151,21 @@ appear in the body.
   diversification, attaching the packet's Actions section, keeping list items
   together and a budget scaled by the number of query terms were measured and
   rejected (at most +0.01 at the same size, or lower retrieval metrics).
+- Related requirements: after the pack, up to 700 characters of labelled
+  requirement sentences from the sections ranked 9th to 40th that are not in the
+  pack, each sharing at least two distinct query terms, scored by the idf of those
+  terms with no rank discount, best first. Why: across four same-time runs the
+  facts MCP missed most consistently (in at least two of three runs while grep got
+  them) were rules stated in a short section or in a sentence that does not repeat
+  the question's main term, so the section ranks low: PINGREQ Actions (rank 17 for
+  a keep-alive question), DISCONNECT only after a successful CONNACK, 3.1.1's close
+  on a protocol violation. On the model's first searches the pack held 0.903 of
+  the answer-key facts; with related requirements 0.917, for about 180 more
+  `o200k_base` tokens per search, against 0.908 for the same 700 characters added
+  to the pack itself. At equal total size (a 4,800-character pack plus 700) there
+  is no gain, so this is the most efficient use of extra characters, not a free
+  one. Drawing the pack itself from 12, 16 or 24 sections changed nothing. An
+  explicit `limit` turns related requirements off.
 - The pack ends with the next step: state each rule in the excerpts that bears on
   the question, with its MUST/SHOULD/MAY and conditions, and cite its section; if
   a needed rule is missing, get one listed section; do not search this version
@@ -163,9 +178,12 @@ appear in the body.
   `parent`; search `query`; get `section`, `cursor`; lookup `kind`, `query`,
   `packet`. The others (`depth`, `chapter`, `limit`, `normative_only`,
   `include_subsections`, `max_chars`) are still accepted. Descriptions and the
-  server instructions are short, keeping the version-safety rules. Together the
-  model-visible tool definitions and instructions fell from 1,222 to 603
-  `o200k_base` tokens per call; the scope sentence in every result is shorter too.
+  server instructions are short, keeping the version-safety rules. The advertised
+  schemas also leave out what the argument models enforce anyway: the `version`
+  enum has no description, optional strings are plain `string` (null is still
+  accepted) and non-empty checks are not advertised. Together the model-visible
+  tool definitions and instructions fell from 1,222 to 531 `o200k_base` tokens per
+  call; the scope sentence in every result is shorter too.
 - The server instructions tell the agent to consult the tools before answering (in
   the first full run 4 of 120 MCP 5.0 runs answered from memory and scored 0.59).
 

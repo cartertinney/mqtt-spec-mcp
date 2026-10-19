@@ -13,10 +13,16 @@ from typing import Any
 import pytest
 
 from mqtt_spec_mcp.engine import SpecEngine
-from mqtt_spec_mcp.search import MAX_QUERY_TERMS, query_terms
+from mqtt_spec_mcp.search import (
+    MAX_QUERY_TERMS,
+    PACK_CHARS,
+    PACK_SECTIONS,
+    query_terms,
+    search,
+)
 from mqtt_spec_mcp.server import MqttSpecService
 from scripts.indexgen.parse import parse_document
-from tests.conftest import Call, JsonCall
+from tests.conftest import Call, JsonCall, parse_search
 
 GET_31 = {"section": "3.1", "include_subsections": True, "max_chars": 1000}
 
@@ -166,7 +172,7 @@ def test_requirement_label_spellings(
     result = ok("mqtt_spec_lookup", version=version, kind="requirement", query=query)
     assert result["id"] == label
     found = ok("mqtt_spec_search", version=version, query=query, limit=1)
-    assert found["results"][0]["requirements"][0] == label
+    assert found["results"][0]["section"] == result["section"]
 
 
 @pytest.mark.parametrize("query", ["3.1.2.4.", "section 3.1.2.4", "§3.1.2.4"])
@@ -297,7 +303,6 @@ def test_reconciled_label_search_shows_the_requirement(
     ok: JsonCall, label: str, statement: str
 ) -> None:
     first = ok("mqtt_spec_search", version="5.0", query=label, limit=1)["results"][0]
-    assert first["requirements"][0] == label
     assert statement in first["snippet"]
 
 
@@ -403,7 +408,7 @@ def test_will_is_a_search_term(ok: JsonCall) -> None:
 
 def test_next_step_offers_listed_alternatives(ok: JsonCall) -> None:
     step = ok("mqtt_spec_search", version="5.0", query="keep alive")["next_step"]
-    assert "another listed section" in step
+    assert "listed section" in step
     assert "Do not search again for this question." in step
 
 
@@ -467,60 +472,48 @@ def test_lenience_does_not_reach_version_or_ranges(
     assert "Invalid arguments" in err("mqtt_spec_outline", **args)
 
 
-def test_snippets_are_query_focused_passages(engines: dict[str, SpecEngine]) -> None:
-    engine = engines["5.0"]
-    body = engine.sections["3.3.2.3.4"].body
-    snippet = engine.search_index.passages(body, "Topic Alias of 0 not permitted", 320)
-    assert len(snippet) <= 320 < len(body)
-    assert "A Topic Alias of 0 is not permitted." in snippet
-    assert " ... " in snippet
-    assert snippet.endswith("...")
-    assert snippet.index("MUST NOT carry forward") < snippet.index("of 0 is not")
-    assert engine.search_index.passages("Short text.", "text", 320) == "Short text."
-
-
-def test_passages_never_exceed_the_budget(engines: dict[str, SpecEngine]) -> None:
-    queries = ("session state", "close the network connection", "MUST NOT", "zzz")
-    for engine in engines.values():
-        longest = sorted(engine.ordered, key=lambda info: -len(info.body))[:30]
-        for info in longest:
-            for query in queries:
-                for budget in (320, 700, 1600):
-                    snippet = engine.search_index.passages(info.body, query, budget)
-                    assert len(snippet) <= budget, (info.id, query, budget)
-
-
-def test_overlong_best_sentence_falls_back_to_a_window(
-    engines: dict[str, SpecEngine],
-) -> None:
-    text = "Intro. " + "filler " * 60 + "needle here " + "filler " * 60 + "end. Outro."
-    snippet = engines["5.0"].search_index.passages(text, "needle", 320)
-    assert "needle" in snippet
-    assert len(snippet) <= 320
-    assert snippet.startswith("...")
-    assert snippet.endswith("...")
-
-
-def test_later_results_share_a_fixed_snippet_budget(call: Call) -> None:
-    for limit, cap in ((3, 640), (4, 640), (5, 480)):
-        outcome = call("mqtt_spec_search", version="5.0", query="session", limit=limit)
-        result = json.loads(outcome.text)
-        later = result["results"][1:]
-        assert len(later) == limit - 1
-        assert all(len(r["snippet"]) <= cap for r in later)
-        assert len(outcome.text) < 5000
-
-
-def test_search_responses_stay_under_5000_characters(call: Call) -> None:
+def test_search_pack_fits_its_budget(call: Call) -> None:
     queries = (
         "Topic Alias Maximum protocol error",
         "shared subscription",
-        "will delay",
+        "keep alive",
     )
     for version in ("3.1.1", "5.0"):
         for query in queries:
-            for limit in (3, 4, 5):
-                outcome = call(
-                    "mqtt_spec_search", version=version, query=query, limit=limit
-                )
-                assert len(outcome.text) < 5000, (version, query, limit)
+            text = call("mqtt_spec_search", version=version, query=query).text
+            assert len(text) < PACK_CHARS + 700, (version, query)
+            pack = parse_search(text)
+            assert 1 <= len(pack["results"]) <= PACK_SECTIONS
+            assert all(r["snippet"].strip() for r in pack["results"])
+            assert pack["scope"].startswith(f"MQTT {version} only.")
+
+
+def test_search_limit_caps_the_sections(ok: JsonCall) -> None:
+    pack = ok("mqtt_spec_search", version="5.0", query="session state", limit=2)
+    assert 1 <= len(pack["results"]) <= 2
+
+
+def test_evidence_pack_reaches_the_behaviour_section(ok: JsonCall) -> None:
+    query = "Topic Alias value 0 greater than Topic Alias Maximum protocol error"
+    pack = ok("mqtt_spec_search", version="5.0", query=query)
+    sections = [r["section"] for r in pack["results"]]
+    assert {"3.3.2.3.4", "3.3.4"} <= set(sections)
+    text = "\n".join(r["snippet"] for r in pack["results"])
+    assert "Topic Alias invalid" in text
+
+
+def test_evidence_pack_shows_a_repeated_sentence_once(ok: JsonCall) -> None:
+    pack = ok("mqtt_spec_search", version="5.0", query="Topic Alias Maximum")
+    sections = [r["section"] for r in pack["results"]]
+    assert {"3.1.2.11.5", "3.2.2.3.8"} <= set(sections)
+    text = "\n".join(r["snippet"] for r in pack["results"])
+    repeated = "It is a Protocol Error to include the Topic Alias Maximum value more"
+    assert text.count(repeated) == 1
+
+
+def test_evidence_excerpts_are_verbatim(engines: dict[str, SpecEngine]) -> None:
+    result = search(engines["5.0"], "Session Expiry Interval DISCONNECT")
+    for entry in result["sections"]:
+        body = engines["5.0"].sections[entry["section"]].body
+        for piece in entry["excerpt"].split(" ... "):
+            assert piece.strip(".").strip() in body

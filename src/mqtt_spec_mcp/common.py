@@ -46,8 +46,8 @@ def envelope(version: VersionId) -> dict[str, Any]:
         "specification": pin.title,
         "version": version,
         "scope": (
-            f"MQTT {version} only. Do not apply this evidence, its section numbers, "
-            f"requirement labels, fields or codes to MQTT {other} or any other version."
+            f"MQTT {version} only. Never apply its section numbers, labels, fields or "
+            f"codes to MQTT {other}."
         ),
         "source": pin.source_url,
     }

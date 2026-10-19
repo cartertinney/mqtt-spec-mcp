@@ -12,7 +12,8 @@ import pytest
 
 from mqtt_spec_mcp.engine import SpecEngine
 from mqtt_spec_mcp.render import build_fragments, fragment_limit, page_summary
-from tests.conftest import Call, JsonCall
+from mqtt_spec_mcp.search import PACK_CHARS, PACK_SECTIONS
+from tests.conftest import Call, JsonCall, parse_search
 
 # Search ----------------------------------------------------------------------------
 
@@ -22,10 +23,6 @@ def test_search_will_delay_interval(ok: JsonCall) -> None:
     assert result["results"][0]["section"] == "3.1.3.2.2"
     assert result["best_section"] == "3.1.3.2.2"
     assert "not search again" in result["next_step"]
-    assert "3.1.3.2.2" in result["next_step"]
-    assert result["query"] == "Will Delay Interval"
-    assert result["chapter"] is None
-    assert result["normative_only"] is False
 
 
 def test_search_label_normative_only(ok: JsonCall) -> None:
@@ -34,15 +31,13 @@ def test_search_label_normative_only(ok: JsonCall) -> None:
     )
     first = result["results"][0]
     assert first["section"] == "3.1.2.11.2"
-    assert "MQTT-3.1.2-23" in first["requirements"]
-    assert all(r["requirements"] is not None for r in result["results"])
+    assert "MQTT-3.1.2-23" in first["snippet"]
 
 
 def test_search_label_listed_first(ok: JsonCall) -> None:
     first = ok("mqtt_spec_search", version="5.0", query="MQTT-3.1.4-2")["results"][0]
-    assert first["requirements"][0] == "MQTT-3.1.4-2"
-    assert "MQTT-3.1.3-1" not in first["requirements"]
-    assert len(first["requirements"]) <= 5
+    assert first["section"] == "3.1.4"
+    assert "MQTT-3.1.4-2" in first["snippet"]
 
 
 def test_search_shared_subscription_in_chapter_4(ok: JsonCall) -> None:
@@ -51,12 +46,9 @@ def test_search_shared_subscription_in_chapter_4(ok: JsonCall) -> None:
     )
     first, *rest = result["results"]
     assert first["section"] == "4.8.2"
-    assert len(first["snippet"]) > 640
     assert "$share/{ShareName}/{filter}" in first["snippet"]
     assert "only sent to one of its subscribing Sessions" in first["snippet"]
-    assert all(len(r["snippet"]) <= 640 for r in rest)
-    assert result["chapter"] == "4"
-    assert all(r["section"].startswith("4.") for r in result["results"])
+    assert all(r["section"].startswith("4.") for r in rest)
 
 
 def test_search_multi_concept_request_response(ok: JsonCall) -> None:
@@ -68,22 +60,19 @@ def test_search_multi_concept_request_response(ok: JsonCall) -> None:
             "in a request/response exchange?"
         ),
     )
-    first = result["results"][0]
-    assert first["section"] == "4.10.1"
-    context = first["parent_context"]
-    assert context["section"] == "4.10"
-    assert "Request Response Information" in context["snippet"]
-    assert len(context["snippet"]) <= 700
+    sections = [r["section"] for r in result["results"]]
+    assert sections[0] == "4.10.1"
+    assert {"3.3.2.3.5", "3.3.2.3.6"} <= set(sections)
 
 
 def test_search_topic_alias_scoped(call: Call) -> None:
     outcome = call(
         "mqtt_spec_search", version="5.0", query="Topic Alias", chapter="3.3"
     )
-    result = json.loads(outcome.text)
+    result = parse_search(outcome.text)
     assert result["results"]
-    assert all(r["section"].startswith("3.3.") for r in result["results"])
-    assert len(outcome.text) < 5000
+    assert all(r["section"].startswith("3.3") for r in result["results"])
+    assert len(outcome.text) < PACK_CHARS + 700
 
 
 @pytest.mark.parametrize("version", ["3.1.1", "5.0"])
@@ -94,8 +83,8 @@ def test_search_topic_alias_scoped(call: Call) -> None:
 def test_search_default_size_bound(call: Call, version: str, query: str) -> None:
     outcome = call("mqtt_spec_search", version=version, query=query)
     assert not outcome.is_error
-    assert len(outcome.text) < 5000
-    assert len(json.loads(outcome.text)["results"]) <= 4
+    assert len(outcome.text) < PACK_CHARS + 700
+    assert len(parse_search(outcome.text)["results"]) <= PACK_SECTIONS
 
 
 def test_search_section_id_query(ok: JsonCall) -> None:

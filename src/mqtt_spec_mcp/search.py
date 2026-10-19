@@ -290,54 +290,6 @@ class SearchIndex:
 
     # Snippets ----------------------------------------------------------------------
 
-    def passages(self, text: str, query: str, budget: int) -> str:
-        """A snippet of at most ``budget`` chars made of the sentences that carry the
-        most query information, each with its neighbours for context, in document
-        order. Cuts are marked with ``...``; short texts are returned whole."""
-        if len(text) <= budget:
-            return text
-        units = _units(text)
-        haystack = match_form(text)
-        terms = query_terms(query)
-        patterns = [
-            re.compile(rf"(?<![0-9a-z]){re.escape(_prefix_form(t))}") for t in terms
-        ]
-        phrase = phrase_form(query) if len(terms) > 1 else ""
-        scores: list[float] = []
-        for start, end in units:
-            segment = haystack[start:end]
-            score = sum(
-                self.idf.get(t, self.max_idf)
-                for t, p in zip(terms, patterns, strict=True)
-                if p.search(segment)
-            )
-            if phrase and phrase in " ".join(segment.split()):
-                score += PASSAGE_PHRASE_BONUS
-            scores.append(score)
-        ranked = sorted(
-            (i for i, s in enumerate(scores) if s > 0), key=lambda i: (-scores[i], i)
-        )
-        chosen: set[int] = set()
-        for best in ranked:
-            if _passage_size(units, chosen | {best}) > budget:
-                if not chosen:
-                    # The most informative sentence alone is too long: window into it.
-                    start, end = units[best]
-                    local = self.anchor(text[start:end], query) or 0
-                    return window(text, start + local, budget)
-                continue
-            chosen.add(best)
-            for neighbour in (best + 1, best - 1):
-                if (
-                    0 <= neighbour < len(units)
-                    and neighbour not in chosen
-                    and _passage_size(units, chosen | {neighbour}) <= budget
-                ):
-                    chosen.add(neighbour)
-        if not chosen:
-            return window(text, self.anchor(text, query), budget)
-        return _render_passages(text, units, sorted(chosen))
-
     def evidence(
         self, docs: list[_Doc], query: str, budget: int
     ) -> list[tuple[_Doc, str]]:
@@ -606,10 +558,10 @@ def search(
     best = sections[0]["section"] if sections else None
     if sections:
         next_step = (
-            "Answer from these excerpts if they state every fact the question asks "
-            "for, citing their sections. Otherwise call mqtt_spec_get once with "
-            f"version='{v}' for the listed section that should hold the rest. Do not "
-            "search again for this question."
+            "Answer from these excerpts: state each rule here that bears on the "
+            "question, with its MUST/SHOULD/MAY and conditions, and cite its section. "
+            "If a needed rule is missing, get one listed section with mqtt_spec_get "
+            f"(version='{v}'). Do not search again for this question."
         )
     else:
         next_step = (

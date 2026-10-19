@@ -21,7 +21,7 @@ from .engine import SpecEngine
 from .loader import load_index
 from .lookup import KINDS, lookup
 from .render import get_section
-from .search import render_search, search
+from .search import PACK_SECTIONS, render_search, search
 from .versions import PINS, SUPPORTED_VERSIONS, VersionId, as_version
 
 logger = logging.getLogger(__name__)
@@ -138,7 +138,7 @@ class OutlineArgs(_Args):
 class SearchArgs(_Args):
     query: NonEmpty
     chapter: str | None = None
-    limit: Annotated[int, Field(ge=1, le=8)] | None = None
+    limit: Annotated[int, Field(ge=1, le=PACK_SECTIONS)] = PACK_SECTIONS
     normative_only: bool = False
 
 

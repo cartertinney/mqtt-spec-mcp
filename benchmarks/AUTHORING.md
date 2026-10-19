@@ -130,3 +130,13 @@ negated phrase). Three facts the prompts do not ask for were dropped (a refusal
 path, re-authentication, and a 3.1.1 rule the prompt states as given); two wrong
 claims seen in answers became forbidden claims; 10 facts that credited prompt
 echoes or text about the other version were tightened.
+
+A third pass, with the same rules, checked the keys against the 800 answers of the
+next two runs. It changed 50 cases: across the 3,692 distinct answers stored by
+then, 48 failing answers became passes and 4 passes became failures (wrong content
+that had been credited through an unrelated sentence, a code name read as the
+failure rule, and a reason code the Server may not send). Seven facts that only
+echoed the prompt (for example "QoS 2" for a question about the QoS 2 handshake)
+were dropped, as was one 3.1.1 behaviour the prompt states as given. The 800
+answers of the run that followed, which no pass had seen, gained 10 passes and lost
+none from these changes.

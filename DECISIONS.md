@@ -176,6 +176,18 @@ appear in the body.
   is no gain, so this is the most efficient use of extra characters, not a free
   one. Drawing the pack itself from 12, 16 or 24 sections changed nothing. An
   explicit `limit` turns related requirements off.
+- Everyday spellings are rewritten into the specifications' terms before matching
+  (not in requirement-label or section-id queries): `keepalive`/`keep-alive` to Keep
+  Alive, `LWT`/`last will (and testament)` to Will, `broker` to Server, `QoS0` to
+  QoS 0, `client id` to ClientID, `kick` to disconnect. Why: `keepalive` (one word)
+  matched only a reason code table row (no result at all in 3.1.1), and `LWT` and
+  `broker` occur in neither specification; questions from practitioners use them.
+  Rewriting to "Will Message" or adding "Client Identifier" was tried and dropped:
+  those title words pulled the payload field sections above the rules. On the 220
+  corpus queries Recall@1 rose from 0.80 to 0.81 and MRR from 0.87 to 0.88 (five
+  queries gained the right first section, one moved it to second); 26 of 1,569
+  benchmark searches by the model contained such words, and first-search coverage
+  was unchanged.
 - Multi-part queries: `;` separates the parts of a question (at most four; more
   are joined to the fourth). Each part is ranked and excerpted on its own share of
   9,000 characters (at least 2,500), sharing one set of sentences already shown; a

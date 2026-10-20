@@ -27,6 +27,7 @@ from mqtt_spec_mcp.search import (
     query_parts,
     query_terms,
     search,
+    spec_spelling,
 )
 from mqtt_spec_mcp.server import MqttSpecService
 from scripts.indexgen.parse import parse_document
@@ -615,6 +616,34 @@ def test_multi_part_search_keeps_reference_parts(ok: JsonCall) -> None:
     by_id = ok("mqtt_spec_search", version="3.1.1", query="3.1.2.4; keep alive")
     assert by_id["results"][0]["section"] == "3.1.2.4"
     assert "3.1.2.10" in [r["section"] for r in by_id["results"]]
+
+
+def test_everyday_spellings_are_rewritten() -> None:
+    assert spec_spelling("keepalive and keep-alive") == "Keep Alive and Keep Alive"
+    assert spec_spelling("LWT vs last will and testament") == "Will vs Will"
+    assert (
+        spec_spelling("brokers kicked QoS0 clients")
+        == "Server disconnect QoS 0 clients"
+    )
+    assert spec_spelling("same client id or ClientID") == "same ClientID or ClientID"
+    assert spec_spelling("Will Delay Interval") == "Will Delay Interval"
+
+
+@pytest.mark.parametrize("version", ["3.1.1", "5.0"])
+@pytest.mark.parametrize(
+    ("query", "section"), [("keepalive", "3.1.2.10"), ("LWT", "3.1.2.5")]
+)
+def test_everyday_spellings_find_their_section(
+    ok: JsonCall, version: str, query: str, section: str
+) -> None:
+    pack = ok("mqtt_spec_search", version=version, query=query)
+    assert pack["results"][0]["section"] == section
+
+
+def test_identifier_queries_are_not_rewritten(engines: dict[str, SpecEngine]) -> None:
+    result = search(engines["5.0"], "MQTT-3.1.2-4")
+    assert result["query"] == "MQTT-3.1.2-4"
+    assert search(engines["5.0"], "keepalive")["query"] == "keepalive"
 
 
 def test_evidence_excerpts_are_verbatim(engines: dict[str, SpecEngine]) -> None:

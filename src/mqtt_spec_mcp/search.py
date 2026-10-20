@@ -58,6 +58,20 @@ NORMATIVE_SENTENCE = re.compile(r"\b(?:MUST|SHOULD|MAY|REQUIRED|SHALL)\b|\[MQTT-
 # and excerpted separately and merged into one pack, each with MULTI_PACK_CHARS / n
 # characters (at least MIN_PART_CHARS). Parts beyond MAX_QUERY_PARTS join the last.
 QUERY_PART_SEPARATOR = re.compile(r"\s*;\s*")
+# Everyday MQTT words the specifications spell differently, rewritten before
+# matching: "keepalive" (one word) otherwise matches only a reason code table row,
+# and "LWT" and "broker" do not occur in either specification.
+SPEC_SPELLINGS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile(pattern, re.IGNORECASE), replacement)
+    for pattern, replacement in (
+        (r"\bkeep-?alive\b", "Keep Alive"),
+        (r"\b(?:last will(?: and testament)?|lwt)\b", "Will"),
+        (r"\bbrokers?\b", "Server"),
+        (r"\bqos([012])\b", r"QoS \1"),
+        (r"\bclient[ -]?ids?\b", "ClientID"),
+        (r"\bkick(?:s|ed|ing)?\b", "disconnect"),
+    )
+)
 MAX_QUERY_PARTS = 4
 MULTI_PACK_CHARS = 9000
 MIN_PART_CHARS = 2500
@@ -646,10 +660,19 @@ def _render_passages(text: str, units: list[tuple[int, int]], order: list[int]) 
     return "".join(parts)
 
 
+def spec_spelling(query: str) -> str:
+    """``query`` with everyday MQTT words in the specifications' spelling."""
+    for pattern, replacement in SPEC_SPELLINGS:
+        query = pattern.sub(replacement, query)
+    return query
+
+
 def _ranked(
     engine: SpecEngine, query: str, chapter: str | None, normative_only: bool
 ) -> tuple[str, SectionInfo | None, list[_Doc], str | None, bool]:
-    """Validate a query and rank sections: (query, chapter, docs, label, identifier)."""
+    """Validate a query and rank sections: (query as matched, chapter, docs, label,
+    identifier). Labels and section ids are matched as given; other queries in the
+    specifications' spelling (``spec_spelling``)."""
     engine.guard("query", query)
     query = query.strip()
     if not tokenize(query):
@@ -658,12 +681,14 @@ def _ranked(
             "'Session Expiry Interval' or a requirement label such as 'MQTT-3.1.2-4'."
         )
     root = engine.resolve_section(chapter, "chapter") if chapter is not None else None
-    ranked = engine.search_index.rank(query, root.id if root else None, normative_only)
     label = canonical_label(query, engine.version) if looks_like_label(query) else None
     if label is not None and label not in engine.requirements:
         label = None
     q_id = SECTION_PREFIX.sub("", normalize(query)).strip().rstrip(".,;:")
     identifier = label is not None or SECTION_ID.fullmatch(q_id) is not None
+    if not identifier:
+        query = spec_spelling(query)
+    ranked = engine.search_index.rank(query, root.id if root else None, normative_only)
     return query, root, [doc for _, doc in ranked], label, identifier
 
 
@@ -698,6 +723,7 @@ def search(
             limit=limit,
             normative_only=normative_only,
         )
+    asked = query.strip()
     query, root, docs, label, identifier = _ranked(
         engine, query, chapter, normative_only
     )
@@ -725,7 +751,7 @@ def search(
             sections.append(
                 _entry(info, window(info.body, index.anchor(info.body, query), 1600))
             )
-    return _result(engine, query, root, normative_only, sections)
+    return _result(engine, asked, root, normative_only, sections)
 
 
 def query_parts(query: str) -> list[str]:

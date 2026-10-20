@@ -122,7 +122,10 @@ call with version 3.1.1 returns 14.
 
 `version` and `query`: the question's key terms, a section id (`3.1.2.4`) or a
 requirement label (`MQTT-3.1.2-23`). For a question with several parts, give one
-group of key terms per part, separated by `;`. `chapter` (restrict to a section's
+group of key terms per part, separated by `;`. Everyday spellings are matched in
+the specifications' terms: `keepalive` as Keep Alive, `LWT` and `last will` as Will,
+`broker` as Server, `QoS0` as QoS 0, `client id` as ClientID and `kick` as
+disconnect. `chapter` (restrict to a section's
 subtree), `limit` (1–8 sections, per part; giving it also leaves out related
 requirements) and `normative_only` are accepted.
 
@@ -345,9 +348,9 @@ only within runs made together: the same model can answer measurably differently
 few hours later (see the results below).
 
 Current retrieval baseline on the 200 cases (220 queries, since each comparison case
-is ranked once per version): Recall@1 0.80, Recall@3 0.60, Recall@5 0.67, hit rate
-0.97, MRR 0.87, lookup success 1.00, p95 latency under 10 ms. Per version, 3.1.1 has
-Recall@1 0.80 / MRR 0.87 and 5.0 has Recall@1 0.79 / MRR 0.87. The CI gate thresholds
+is ranked once per version): Recall@1 0.81, Recall@3 0.61, Recall@5 0.68, hit rate
+0.98, MRR 0.88, lookup success 1.00, p95 latency under 10 ms. Per version, 3.1.1 has
+Recall@1 0.83 / MRR 0.89 and 5.0 has Recall@1 0.81 / MRR 0.88. The CI gate thresholds
 sit below this baseline. Recall@k divides by min(|relevant|, k), and cases list about
 three relevant sections on average, often in different chapters, so Recall@3 and
 Recall@5 are stricter than the hit rate.

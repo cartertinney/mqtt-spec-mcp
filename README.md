@@ -368,25 +368,25 @@ stored answers offline.
 
 ### Latest results
 
-[benchmarks/results/2026-10-19-claude-sonnet-5.md](benchmarks/results/2026-10-19-claude-sonnet-5.md)
-has the full report. Claude Sonnet 5 through the Copilot SDK, all 200 cases, the
-three reference conditions run side by side with the current server (`none` from an
-earlier pass the same day):
+[benchmarks/results/2026-10-19-evidence-pack-claude-sonnet-5.md](benchmarks/results/2026-10-19-evidence-pack-claude-sonnet-5.md)
+has the full report. Claude Sonnet 5 through the Copilot SDK, all 200 cases, this
+server and the grep baseline run side by side in two epochs (400 paired runs whose
+answers the answer-key checks never saw):
 
 | condition | quality | pass rate | tokens/question | cost-weighted tokens | latency (mean) | model calls |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `full_spec` | 0.979 | 91.0% | 90,426 | 21,076 | 7.1 s | 1.00 |
-| `grep` | 0.949 | 79.5% | 8,971 | 7,678 | 9.5 s | 2.91 |
-| `mcp` | 0.952 | 74.5% | 9,723 | 7,013 | 8.6 s | 2.33 |
-| `none` | 0.879 | 60.0% | 1,000 | 3,351 | 8.3 s | 1.00 |
+| `mcp` | 0.977 | 88.0% | 7,816 | 7,863 | 8.3 s | 2.11 |
+| `grep` | 0.971 | 86.5% | 8,667 | 7,619 | 9.2 s | 2.85 |
 
-With this server the model used 89% fewer tokens than with the whole specification
-in its prompt and scored 2.7 points lower (95% CI 1.3 to 4.2); most of those misses
-were in a second relevant section it never read. It took about 22% longer, because
-a tool round trip is slower than one call whose 90,000-token prompt comes from the
-prompt cache. Against a plain grep tool over the same text it was as accurate and
-11% faster, and used about 8% more raw tokens but 9% fewer once cached tokens are
-priced (cost-weighted: cache reads 0.1, cache writes 1.25, output 5).
+Against a plain grep tool over the same text the model was as accurate (+0.6
+points, 95% CI -0.4 to +1.8; -0.2 across all 1,200 pairs of the six evidence-pack
+passes), used 10% fewer tokens (CI 2.5% to 16.2%; 11% pooled) and was 11% faster.
+Once cached tokens are priced (cache reads 0.1, cache writes 1.25, output 5) the
+two cost about the same. In the first of those passes, the whole specification in
+the prompt scored 1.6 points higher than the evidence pack and used 11 times the
+tokens.
+[benchmarks/results/2026-10-19-claude-sonnet-5.md](benchmarks/results/2026-10-19-claude-sonnet-5.md)
+has the earlier runs, including `none` and the previous search design.
 
 ## Development
 

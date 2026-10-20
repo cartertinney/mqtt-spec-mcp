@@ -342,6 +342,12 @@ appear in the body.
   condition later therefore measures the model's drift as well as the change. The
   report's `--epoch` option restricts it to the runs of one pass; a re-run of one
   condition should be followed by a pass of the conditions it is compared with.
+- Answer keys are checked against stored answers (blind to condition) and those
+  answers are then rescored, so results on answers a key check has already seen
+  are slightly optimistic for both conditions. Headline results use a pass whose
+  answers no key check had seen; across three checks, keys fitted to earlier
+  answers raised the scores of later, unseen answers about equally for `mcp` and
+  `grep`.
 - Copilot SDK runner: `CopilotClient(mode="empty")`, built-in tools disabled via
   `available_tools` (custom tools only, or none), system message in `replace`
   mode, infinite sessions off, one fresh session per run, `--concurrency` sessions

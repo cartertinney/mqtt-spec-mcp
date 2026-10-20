@@ -21,14 +21,14 @@ import json
 import random
 import statistics
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 from .cases import Case, load_cases
 from .corpus import CorpusCase, CorpusError
-from .judge import judged_score, judgment_key, load_judgments, scorer_id
+from .judge import judgment_key, load_judgments, panel_score, scorer_id
 from .plan import (
     LoadedPlan,
     Plan,
@@ -74,27 +74,31 @@ def rescore(records: list[RunRecord], cases: dict[str, Case]) -> None:
 def score_judged(
     records: list[RunRecord],
     cases: dict[str, CorpusCase],
-    judge_model: str,
+    judge_models: str | Sequence[str],
     judgments: Path | Sequence[Path],
 ) -> None:
-    """Score format-2 answers from cached judgments of ``judge_model``."""
+    """Score format-2 answers from cached judgments: one judge's, or the mean of a
+    panel's."""
+    models = [judge_models] if isinstance(judge_models, str) else list(judge_models)
     paths = [judgments] if isinstance(judgments, Path) else list(judgments)
     found = load_judgments(paths)
-    missing = 0
+    missing: Counter[str] = Counter()
     for record in records:
         if record.error is not None:
             continue
         case = cases[record.case_id]
-        judgment = found.get(judgment_key(judge_model, case, record.answer))
-        if judgment is None:
-            missing += 1
+        panel = [found.get(judgment_key(m, case, record.answer)) for m in models]
+        absent = [m for m, j in zip(models, panel, strict=True) if j is None]
+        missing.update(absent)
+        if absent:
             continue
-        record.score = judged_score(case, record.answer, judgment)
-        record.scorer_version = scorer_id(judge_model)
+        record.score = panel_score(case, record.answer, [j for j in panel if j])
+        record.scorer_version = scorer_id(models)
     if missing:
         raise ReportError(
-            f"{missing} answer(s) have no judgment by {judge_model}: run "
-            "mqtt-spec-bench-judge first"
+            "answers without a judgment ("
+            + ", ".join(f"{m}: {n}" for m, n in sorted(missing.items()))
+            + "): run mqtt-spec-bench-judge first"
         )
 
 
@@ -171,8 +175,9 @@ def _quality(r: RunRecord) -> float:
     return float(r.score["quality"]) if r.score else 0.0
 
 
-def _passed(r: RunRecord) -> bool:
-    return bool(r.score and r.score["passed"])
+def _passed(r: RunRecord) -> float:
+    """1 or 0; with a panel of judges, the share of judges that pass the run."""
+    return float(r.score["passed"]) if r.score else 0.0
 
 
 def _errors(r: RunRecord) -> int:
@@ -184,12 +189,19 @@ def _errors(r: RunRecord) -> int:
     )
 
 
+def _error_share(r: RunRecord) -> float:
+    """Whether the run made an error; with a panel, the share of judges who say so."""
+    if r.score and "error_share" in r.score:
+        return float(r.score["error_share"])
+    return float(_errors(r) > 0)
+
+
 def quality_delta(pairs: Sequence[Pair]) -> float:
     return statistics.fmean(_quality(c) - _quality(b) for b, c in pairs)
 
 
 def pass_delta(pairs: Sequence[Pair]) -> float:
-    return statistics.fmean(float(_passed(c)) - float(_passed(b)) for b, c in pairs)
+    return statistics.fmean(_passed(c) - _passed(b) for b, c in pairs)
 
 
 def token_reduction(pairs: Sequence[Pair]) -> float:
@@ -250,9 +262,7 @@ def summarize(
                     ],
                     4,
                 ),
-                "error_rate": round(sum(_errors(r) > 0 for r in ok) / n, 4)
-                if ok
-                else 0.0,
+                "error_rate": round(sum(map(_error_share, ok)) / n, 4) if ok else 0.0,
                 "tool_calls": _mean([len(r.tool_calls) for r in ok], 2),
                 "api_calls": _mean([r.usage.api_calls for r in ok], 2),
                 "tokens_mean": _mean([r.usage.total_tokens for r in ok], 0),
@@ -504,7 +514,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--rescore", action="store_true", help="re-score answers offline"
     )
-    parser.add_argument("--judge-model", help="judge whose verdicts score format 2")
+    parser.add_argument(
+        "--judge-models",
+        "--judge-model",
+        nargs="+",
+        help="judge (or panel) whose verdicts score format 2",
+    )
     parser.add_argument(
         "--judgments",
         action="append",
@@ -567,14 +582,16 @@ def _report(args: argparse.Namespace) -> int:
                 problems.append(f"some results were not made under {loaded.id}")
             if problems:
                 raise ReportError("; ".join(problems))
-        judge_model = loaded.plan.judge.model if loaded else args.judge_model
-        if not judge_model:
-            raise ReportError("format-2 runs need --judge-model (or --plan)")
+        if loaded is not None and args.judge_models:
+            raise ReportError("the plan fixes the judges; drop --judge-models")
+        judge_models = loaded.plan.judge.models if loaded else args.judge_models
+        if not judge_models:
+            raise ReportError("format-2 runs need --judge-models (or --plan)")
         cases = corpus_cases(records, loaded)
         score_judged(
             records,
             cases,
-            judge_model,
+            judge_models,
             args.judgments or [judgments_path(p) for p in paths],
         )
         for field in ("kind", "origin"):

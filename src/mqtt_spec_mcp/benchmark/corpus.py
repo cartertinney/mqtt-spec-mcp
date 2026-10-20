@@ -105,6 +105,8 @@ class CorpusCase(_Strict):
     topic: str
     origin: Origin
     inspired_by: tuple[str, ...] | None = None
+    # Informative OASIS issue ids; never shown to answerers or the judge.
+    clarification_refs: tuple[str, ...] | None = None
     prompt: str
     word_limit: int
     sections_needed: tuple[str, ...]
@@ -139,6 +141,8 @@ class FilePin(_Strict):
 class Manifest(_Strict):
     corpus_format: Literal[2]
     corpus_version: str
+    # A manifest without a status is frozen.
+    status: Literal["draft", "frozen"] | None = None
     created: str
     split_seed: int
     sources: dict[str, SourcePin]
@@ -412,6 +416,10 @@ def register(name: str, path: Path, *, force: bool = False) -> Path:
     corpus = Corpus(
         name, root, parse_manifest(data, root / "manifest.json"), sha256_hex(data)
     )
+    if corpus.manifest.status == "draft":
+        raise CorpusError(
+            f"{root} is a draft corpus, which can still change: freeze it first"
+        )
     check(corpus)
     target = bench_dir() / "corpora" / f"{name}.json"
     if target.exists() and not force:

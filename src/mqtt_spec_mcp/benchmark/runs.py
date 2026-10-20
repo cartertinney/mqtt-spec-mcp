@@ -23,6 +23,7 @@ from .conditions import (
     MAX_TOOL_CALLS,
     Condition,
     spec_text,
+    version_label,
 )
 from .scorer import SCORER_VERSION
 
@@ -68,7 +69,12 @@ def case_hash(case: Question) -> str:
     """What the model is asked for one case. Answer keys are excluded: stored
     answers are rescored offline with the current keys (``--rescore``)."""
     asked = (case.id, case.version, case.prompt, case.word_limit)
-    return digest({"case": asked, "format": RESULT_FORMAT})
+    payload: dict[str, Any] = {"case": asked, "format": RESULT_FORMAT}
+    if len(case.versions) > 1:
+        # Comparison questions were sent unlabelled until 2026-10-20; the label
+        # of a single-version question has never changed.
+        payload["label"] = version_label(case.versions)
+    return digest(payload)
 
 
 def _server_source() -> str:

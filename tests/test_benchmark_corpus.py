@@ -31,6 +31,7 @@ from mqtt_spec_mcp.benchmark.runs import (
     append_record,
     base_hash,
     case_hash,
+    load_records,
     output_labels,
     stratified_sample,
 )
@@ -213,6 +214,21 @@ def test_corpus_refuses_changes_after_freezing(
         corpus.open_corpus("demo")
     with pytest.raises(CorpusError, match="no corpus registered as 'other'"):
         corpus.open_corpus("other")
+
+
+def test_optional_status_and_clarification_refs(bench: Path, tmp_path: Path) -> None:
+    noted = make_case("noted", "dev", clarification_refs=["MQTT-537"])
+    root = write_corpus(tmp_path / "c", [noted], TEST)
+    manifest = root / "manifest.json"
+    data = json.loads(manifest.read_text("utf-8"))
+    manifest.write_text(json.dumps({**data, "status": "draft"}), "utf-8")
+    with pytest.raises(CorpusError, match="draft corpus"):
+        corpus.register("noted", root)
+    manifest.write_text(json.dumps({**data, "status": "frozen"}), "utf-8")
+    corpus.register("noted", root)
+    (case,) = corpus.open_corpus("noted").cases("dev")
+    assert case.clarification_refs == ("MQTT-537",)
+    assert "MQTT-537" not in judge.judge_message(case, "x")
 
 
 def test_register_refuses_ids_shared_between_splits(
@@ -524,6 +540,7 @@ def write_plan(
     *,
     split: corpus.Split = "dev",
     name: str = "dev-pass",
+    judges: tuple[str, ...] = ("judge-x",),
 ) -> Path:
     text = plan.render_plan(
         name=name,
@@ -534,7 +551,7 @@ def write_plan(
         conditions=["mcp", "grep"],
         epochs=1,
         seed=3,
-        judge_model="judge-x",
+        judge_models=judges,
         baseline="grep",
         candidate="mcp",
         server_commit=None,
@@ -561,6 +578,9 @@ def test_plan_pins_corpus_code_and_judge(demo: corpus.Corpus, bench: Path) -> No
     assert "scoring formula" in plan.plan_problems(plan.load_plan(path))[0]
     path.write_text(text.replace('baseline = "grep"', 'baseline = "none"'), "utf-8")
     with pytest.raises(PlanError, match="baseline and candidate"):
+        plan.load_plan(path)
+    path.write_text(text.replace('models = ["judge-x"]', 'models = ["m1"]'), "utf-8")
+    with pytest.raises(PlanError, match="must not be one of the models under test"):
         plan.load_plan(path)
 
 
@@ -740,6 +760,72 @@ def test_sealed_test_split_reports_only_under_its_plan(
     text = capsys.readouterr().out
     assert "Decision (release@" in text
     assert "test-secret" not in text
+
+
+def test_panel_scores_are_the_mean_of_the_judges() -> None:
+    case = case_of(DEV[0])
+    strict = judgment_for(
+        case,
+        GOOD,
+        {"replace": "present", "zero-not-stored": "absent", "expiry-default": "absent"},
+    )
+    lenient = judgment_for(
+        case,
+        GOOD,
+        {
+            "replace": "present",
+            "zero-not-stored": "present",
+            "expiry-default": "present",
+        },
+    ).model_copy(update={"judge_model": "judge-y"})
+    score = judge.panel_score(case, GOOD, [strict, lenient])
+    one = judge.judged_score(case, GOOD, strict)
+    other = judge.judged_score(case, GOOD, lenient)
+    assert score["quality"] == pytest.approx((one["quality"] + other["quality"]) / 2)
+    assert score["passed"] == 0.5
+    assert score["facts_found"] == ["replace"]
+    assert set(score["judges"]) == {"judge-x", "judge-y"}
+    assert score["scorer_version"] == judge.scorer_id(["judge-x", "judge-y"])
+    assert judge.panel_score(case, GOOD, [strict]) == one
+
+
+def test_report_averages_a_panel_and_needs_every_judgment(
+    demo: corpus.Corpus, bench: Path
+) -> None:
+    results = bench / "runs" / "panel.jsonl"
+    judged_runs(demo.cases("dev"), results)
+    judgments = plan.judgments_path(results)
+    for line in judgments.read_text("utf-8").splitlines():
+        copy = Judgment.model_validate_json(line)
+        case = next(c for c in demo.cases("dev") if c.id == copy.case_id)
+        records = [r for r in load_records([results]) if r.case_id == case.id]
+        answer = next(
+            r.answer
+            for r in records
+            if judge.judgment_key("judge-x", case, r.answer) == copy.key
+        )
+        append_record(
+            judgments,
+            copy.model_copy(
+                update={
+                    "judge_model": "judge-y",
+                    "key": judge.judgment_key("judge-y", case, answer),
+                    "facts": tuple(
+                        v.model_copy(update={"verdict": "present"}) for v in copy.facts
+                    ),
+                }
+            ),
+        )
+    out = bench / "panel.json"
+    argv = [str(results), "--baseline", "grep", "--json-output", str(out)]
+    assert report.main([*argv, "--judge-models", "judge-x", "judge-y"]) == 0
+    rows = {
+        (r["model"], r["condition"]): r
+        for r in json.loads(out.read_text("utf-8"))["summary"]
+    }
+    assert rows[("m1", "grep")]["fact_recall"] == pytest.approx((0.4 + 1.0) / 2)
+    assert rows[("m1", "grep")]["pass_rate"] == pytest.approx(0.5)
+    assert report.main([*argv, "--judge-models", "judge-x", "judge-z"]) == 1
 
 
 def test_bootstrap_resamples_cases_not_pairs() -> None:

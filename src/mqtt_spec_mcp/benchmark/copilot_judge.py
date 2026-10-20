@@ -1,13 +1,13 @@
 """GitHub Copilot SDK backend and command line for the AI judge (``judge.py``).
 
-    mqtt-spec-bench-judge RESULTS.jsonl --judge-model MODEL
+    mqtt-spec-bench-judge RESULTS.jsonl --judge-models MODEL [MODEL ...]
     mqtt-spec-bench-judge --plan benchmarks/plans/NAME.toml
 
 Judges every successful corpus-format-2 answer in the results that has no cached
 judgment from the same judge and prompt, in fresh sessions with no tools, and
 appends each judgment to ``RESULTS.judgments.jsonl``; re-running retries failures.
-The sealed test split needs its plan, which fixes the judge model; progress then
-names no cases.
+The judges of a panel run side by side. The sealed test split needs its plan, which
+fixes the judges; progress then names no cases.
 
 Requires the ``benchmark`` extra (Python 3.11+) and a logged-in Copilot CLI user.
 """
@@ -74,30 +74,38 @@ def copilot_opener(client: CopilotClient, model: str, timeout: float) -> OpenSes
 async def run(args: argparse.Namespace) -> int:
     plan = verified_plan(args.plan) if args.plan else None
     if plan is not None:
-        if args.judge_model:
-            raise PlanError("the plan fixes the judge model; drop --judge-model")
+        if args.judge_models:
+            raise PlanError("the plan fixes the judges; drop --judge-models")
         results = args.results or [plan.results_path]
-        judge_model = plan.plan.judge.model
+        judge_models = list(plan.plan.judge.models)
     else:
-        if not args.results or not args.judge_model:
-            raise PlanError("give results files and --judge-model, or --plan")
-        results, judge_model = args.results, args.judge_model
+        if not args.results or not args.judge_models:
+            raise PlanError("give results files and --judge-models, or --plan")
+        results, judge_models = args.results, list(args.judge_models)
     records = [r for r in latest_records(load_records(results)) if r.error is None]
     if not records:
         raise PlanError("no successful runs to judge")
     cases = corpus_cases(records, plan)
     output = args.judgments or judgments_path(results[0])
+    items = [(cases[r.case_id], r.answer) for r in records]
     with tempfile.TemporaryDirectory(prefix="mqtt-bench-judge-") as base:
         async with CopilotClient(mode="empty", base_directory=base) as client:
-            done = await judge_all(
-                [(cases[r.case_id], r.answer) for r in records],
-                judge_model=judge_model,
-                open_session=copilot_opener(client, judge_model, args.timeout),
-                output=output,
-                concurrency=args.concurrency,
-                sealed=records[0].split == "test",
-                log=lambda line: print(line, flush=True),
+            batches = await asyncio.gather(
+                *(
+                    judge_all(
+                        items,
+                        judge_model=model,
+                        open_session=copilot_opener(client, model, args.timeout),
+                        output=output,
+                        concurrency=args.concurrency,
+                        sealed=records[0].split == "test",
+                        log=lambda line: print(line, flush=True),
+                        prefix=f"{model}: " if len(judge_models) > 1 else "",
+                    )
+                    for model in judge_models
+                )
             )
+    done = [j for batch in batches for j in batch]
     failed = sum(1 for j in done if j.error)
     unverified = sum(1 for j in done if j.unverified)
     print(
@@ -111,11 +119,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Judge corpus-format-2 answers.")
     parser.add_argument("results", nargs="*", type=Path, help="results JSONL files")
     parser.add_argument("--plan", type=Path, help="analysis plan (required for test)")
-    parser.add_argument("--judge-model", help="the judge (a plan fixes it)")
+    parser.add_argument(
+        "--judge-models",
+        "--judge-model",
+        nargs="+",
+        help="one judge, or a panel (a plan fixes them)",
+    )
     parser.add_argument(
         "--judgments", type=Path, help="default: RESULTS.judgments.jsonl"
     )
-    parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument("--concurrency", type=int, default=4, help="per judge")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     args = parser.parse_args(argv)
     try:

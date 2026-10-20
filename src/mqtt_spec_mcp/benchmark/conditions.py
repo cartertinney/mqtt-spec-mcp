@@ -74,12 +74,16 @@ CONDITION_PROMPTS: dict[Condition, str] = {
 }
 
 
+def version_label(versions: Sequence[str]) -> str:
+    """``[MQTT 5.0]``, or ``[MQTT 3.1.1 and 5.0]`` for a comparison."""
+    return f"[MQTT {' and '.join(versions)}]"
+
+
 def user_message(prompt: str, versions: Sequence[str]) -> str:
-    """The question as sent: single-version questions are labelled with their
-    version, as a user of a multi-version tool would; comparisons name both."""
-    if len(versions) == 1:
-        return f"[MQTT {versions[0]}] {prompt}"
-    return prompt
+    """The question as sent, labelled with the version(s) it is about, as a user
+    of a multi-version tool would ask it. Comparison prompts in corpus format 2
+    say "both versions" or "the older protocol" rather than naming them."""
+    return f"{version_label(versions)} {prompt}"
 
 
 @dataclass

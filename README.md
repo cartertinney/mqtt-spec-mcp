@@ -391,8 +391,8 @@ specification(s) the question is about:
 - `mcp`: this server's tools, loaded with only the relevant version(s); comparison
   questions get both versions and must keep them apart.
 
-Single-version questions are sent labelled with their version (`[MQTT 3.1.1] …`), as
-a user of a multi-version tool would ask them; comparison questions name both.
+Every question is sent labelled with the version(s) it is about (`[MQTT 3.1.1] …`,
+`[MQTT 3.1.1 and 5.0] …`), as a user of a multi-version tool would ask it.
 
 The bundled corpus is scored deterministically: `quality = clamp(0.8 × fact recall +
 0.2 × citation recall − violation rate, 0, 1)`. A run passes only with every fact, every citation group and
@@ -424,14 +424,14 @@ uv run mqtt-spec-bench-copilot --corpus independent --conditions mcp grep \
     --models claude-sonnet-5 <other models> --epochs 2 \
     --output benchmarks/runs/independent/dev/pass1.jsonl
 uv run mqtt-spec-bench-judge benchmarks/runs/independent/dev/pass1.jsonl \
-    --judge-model <judge>
+    --judge-models claude-sonnet-5 gpt-5.6-sol
 uv run mqtt-spec-bench-report benchmarks/runs/independent/dev/pass1.jsonl \
-    --judge-model <judge> --baseline grep
+    --judge-models claude-sonnet-5 gpt-5.6-sol --baseline grep
 
 # Test split: write a plan pinned to the current corpus, code and judge; review and
 # commit it; then run, judge and report under it
 uv run mqtt-spec-bench-plan init release-1 --corpus independent \
-    --models claude-sonnet-5 <other models> --judge-model <judge>
+    --models <models> --judge-models claude-sonnet-5 gpt-5.6-sol
 uv run mqtt-spec-bench-plan check benchmarks/plans/release-1.toml
 uv run mqtt-spec-bench-copilot --plan benchmarks/plans/release-1.toml --concurrency 6
 uv run mqtt-spec-bench-judge --plan benchmarks/plans/release-1.toml
@@ -444,9 +444,18 @@ uv run mqtt-spec-bench-report --plan benchmarks/plans/release-1.toml
   returns present, absent or contradicted, and for every wrong claim made or not
   made, quoting the passage of the answer behind each positive verdict. A quote that
   is not in the answer is sent back, up to three attempts. A wrong claim that the
-  answer asserts and later retracts counts as made. Verdicts are cached by judge,
+  answer asserts and later retracts counts as made. A fact stated more widely than
+  the question needs (for several packets, say) is present when the answer states
+  it fully for the cases the question asks about. Verdicts are cached by judge,
   prompt, case content and answer in `RESULTS.judgments.jsonl`, so reports never
   call a model.
+- **Judge panel.** Answers are graded by two judges from different model families,
+  neither of them under test (claude-sonnet-5 and gpt-5.6-sol), and scored with the
+  mean of their two scores. On the independent corpus's dev split the two agreed
+  on 95.7% of 3,096 fact verdicts. Blind adjudicators re-graded every answer the
+  judges disagreed on, plus a sample they agreed on. They sided with each judge
+  about equally often, and each judge leaned toward a different condition on the
+  disputed answers, so averaging cancels the lean instead of choosing it.
 - **Score.** Essential facts weigh 2 and supporting facts 1 in fact recall.
   Citation is the share of facts whose section (or a subsection of it) the answer
   cites. Errors are wrong claims made plus facts contradicted. `quality = clamp(0.8 ×
@@ -456,7 +465,7 @@ uv run mqtt-spec-bench-report --plan benchmarks/plans/release-1.toml
   - the corpus (by manifest hash) and the split;
   - the models, conditions, epochs and seed;
   - hashes of what each condition gives the model;
-  - the judge model, prompt and scoring version;
+  - the judge models, prompt and scoring version;
   - the decision rule: checks on the lower bound of a 95% CI, pooled over models
     or for each model.
 

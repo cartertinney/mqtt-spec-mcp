@@ -10,7 +10,8 @@ evidence still unverified after that is recorded and reported.
 
 Judgments are cached by judge model, judge prompt, the judged content of the case
 and the answer, so reports never re-judge, and the formula below can change
-without re-judging:
+without re-judging. A panel of judges (from different model families) scores each
+answer with the mean of the judges' scores, so their leanings offset:
 
     fact recall = facts present, essential facts weighing 2 and supporting facts 1
     citation    = share of facts with a cited section (or subsection) of theirs
@@ -24,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import statistics
 import time
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager
@@ -44,7 +46,7 @@ from .scorer import (
     plain,
 )
 
-JUDGE_PROMPT_VERSION = "1"
+JUDGE_PROMPT_VERSION = "2"
 SCORING_VERSION = "2.0"
 ESSENTIAL_WEIGHT = 2.0
 SUPPORTING_WEIGHT = 1.0
@@ -66,6 +68,12 @@ partial, vaguer or weaker statement that loses part of that meaning is not prese
 - "contradicted": the answer says something incompatible with the fact anywhere, \
 even if it also states the fact elsewhere.
 - "absent": otherwise.
+Some facts state a rule more widely than the question needs, for example for \
+several packets, codes or cases joined by "or". Such a fact is present when the \
+answer states it, with its full meaning, for every case the question asks about; \
+the answer may leave out cases the question does not involve. Within those cases \
+nothing may be left out: an identifier, value, time limit, condition or \
+requirement strength that the answer omits or weakens makes the fact absent.
 Some facts say that the specification does not define or require something. Such a \
 fact is present only if the answer says or clearly conveys that the specification \
 leaves it undefined or open; it is contradicted if the answer says the \
@@ -124,8 +132,9 @@ def judge_hash() -> str:
     )
 
 
-def scorer_id(judge_model: str) -> str:
-    return f"judged-{SCORING_VERSION}/prompt-{JUDGE_PROMPT_VERSION}/{judge_model}"
+def scorer_id(judge_models: str | Sequence[str]) -> str:
+    models = [judge_models] if isinstance(judge_models, str) else list(judge_models)
+    return f"judged-{SCORING_VERSION}/prompt-{JUDGE_PROMPT_VERSION}/{'+'.join(models)}"
 
 
 def _scope(case: CorpusCase) -> str:
@@ -355,6 +364,7 @@ async def judge_all(
     concurrency: int = 4,
     sealed: bool = False,
     log: Callable[[str], None] = print,
+    prefix: str = "",
 ) -> list[Judgment]:
     """Judge each (case, answer) without a cached judgment; append each result."""
     cached = load_judgments([output])
@@ -363,7 +373,7 @@ async def judge_all(
         key = judgment_key(judge_model, case, answer)
         if key not in cached:
             todo.setdefault(key, (case, answer))
-    log(f"{len(items)} answers, {len(items) - len(todo)} already judged")
+    log(f"{prefix}{len(items)} answers, {len(items) - len(todo)} already judged")
     gate = asyncio.Semaphore(concurrency)
     done: list[Judgment] = []
 
@@ -382,7 +392,7 @@ async def judge_all(
         if sealed and judgment.error:
             # Problems name answer-key ids; the judgments file keeps the detail.
             status = "failed: " + judgment.error.split(":", 1)[0]
-        log(f"[{len(done)}/{len(todo)}] {name} {status}")
+        log(f"{prefix}[{len(done)}/{len(todo)}] {name} {status}")
 
     await asyncio.gather(
         *(worker(i, c, a) for i, (c, a) in enumerate(todo.values(), 1))
@@ -423,6 +433,7 @@ def judged_score(case: CorpusCase, answer: str, judgment: Judgment) -> dict[str,
         ),
         "citation_recall": round(citation_recall, 6),
         "errors": errors,
+        "error_share": float(errors > 0),
         "quality": round(min(1.0, max(0.0, raw)), 6),
         "passed": errors == 0
         and all(i in present and i not in uncited for i in essential),
@@ -436,3 +447,42 @@ def judged_score(case: CorpusCase, answer: str, judgment: Judgment) -> dict[str,
         "violations": made,
         "evidence_unverified": list(judgment.unverified),
     }
+
+
+_AVERAGED = ("fact_recall", "essential_recall", "errors", "error_share", "quality")
+_PER_JUDGE = (
+    "quality",
+    "passed",
+    "facts_missing",
+    "facts_contradicted",
+    "violations",
+    "evidence_unverified",
+)
+
+
+def panel_score(
+    case: CorpusCase, answer: str, judgments: Sequence[Judgment]
+) -> dict[str, Any]:
+    """The mean of the judges' scores. ``passed`` becomes the share of judges that
+    pass the answer; each judge's own verdicts are kept under ``judges``."""
+    scores = [judged_score(case, answer, j) for j in judgments]
+    if len(scores) == 1:
+        return scores[0]
+    combined = dict(scores[0])
+    for field in _AVERAGED:
+        combined[field] = round(statistics.fmean(s[field] for s in scores), 6)
+    combined["passed"] = round(statistics.fmean(float(s["passed"]) for s in scores), 6)
+    combined["scorer_version"] = scorer_id([j.judge_model for j in judgments])
+    for field in ("facts_found", "facts_missing", "facts_contradicted", "violations"):
+        combined[field] = sorted({i for s in scores for i in s[field]})
+    combined["facts_found"] = sorted(
+        set.intersection(*(set(s["facts_found"]) for s in scores))
+    )
+    combined["evidence_unverified"] = sorted(
+        {i for s in scores for i in s["evidence_unverified"]}
+    )
+    combined["judges"] = {
+        j.judge_model: {field: s[field] for field in _PER_JUDGE}
+        for j, s in zip(judgments, scores, strict=True)
+    }
+    return combined

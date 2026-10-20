@@ -290,11 +290,28 @@ def test_system_prompts_share_base() -> None:
     assert "3.1.2.4 Clean Start" in both
 
 
-def test_user_message_labels_single_version_questions() -> None:
+def test_user_message_labels_every_question_with_its_versions() -> None:
     assert conditions.user_message("Q?", ["3.1.1"]) == "[MQTT 3.1.1] Q?"
-    assert conditions.user_message("In 3.1.1 vs 5.0?", ["3.1.1", "5.0"]) == (
-        "In 3.1.1 vs 5.0?"
+    assert conditions.user_message("Older vs newer?", ["3.1.1", "5.0"]) == (
+        "[MQTT 3.1.1 and 5.0] Older vs newer?"
     )
+
+
+def test_case_hash_covers_the_comparison_label() -> None:
+    from mqtt_spec_mcp.benchmark.runs import case_hash, digest
+
+    single = make_case()
+    assert case_hash(single) == digest(
+        {
+            "case": (single.id, single.version, single.prompt, single.word_limit),
+            "format": 2,
+        }
+    )
+    both = make_case(version="both")
+    plain = digest(
+        {"case": (both.id, both.version, both.prompt, both.word_limit), "format": 2}
+    )
+    assert case_hash(both) != plain
 
 
 def _record(

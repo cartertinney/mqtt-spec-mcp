@@ -380,9 +380,20 @@ appear in the body.
   loaded with only the case's version(s), so a call for any other version fails
   rather than leaking it. Comparison cases load both versions everywhere.
 - The base prompt covers both versions and tells the model not to transfer rules
-  between them. Single-version questions are sent prefixed with `[MQTT 3.1.1]` or
-  `[MQTT 5.0]`, as a user of a multi-version tool would label them; comparison
-  questions name both versions themselves.
+  between them. Every question is sent prefixed with its version(s), `[MQTT 3.1.1]`,
+  `[MQTT 5.0]` or `[MQTT 3.1.1 and 5.0]`, as a user of a multi-version tool would
+  label it.
+  - Until 2026-10-20 comparison questions were sent unlabelled, because the
+    bundled corpus's comparison prompts name both versions.
+  - The independent corpus's comparison prompts don't name them: they say "both
+    versions" or "the older protocol". Its schema says the case's version is
+    shown to the agents.
+  - On its dev split, gpt-6.1-sol under `mcp` asked "Which MQTT version should I
+    cover?" on 3 of 16 comparison questions instead of answering. It was following
+    the server's instruction to ask when the user names no version. That cost it
+    about 4 quality points against `grep`, which has no such instruction.
+  - The label is part of the case hash of comparison questions, so runs made
+    without it are re-run.
 - Run records carry four hashes: shared instructions (`base`), the condition's
   prompt (`prompt`), the reference material it can reach (`reference`: the spec
   text for `full_spec`/`grep`; for `mcp`, the tool schemas, instructions, the source of
@@ -441,6 +452,33 @@ appear in the body.
   is incompatible with it, because a reader cannot tell which half to believe.
   Judgments are keyed by judge model, a hash of the prompt templates, the judged
   content of the case and the answer.
+- Judge calibration on the independent corpus's dev split (852 answers):
+  - Two candidate judges from different families, claude-sonnet-5 and
+    gpt-5.6-sol, graded every answer. Neither is among the models under test.
+  - They agreed on 94.8% of 3,096 fact verdicts (kappa 0.59). gpt-5.6-sol was
+    stricter.
+  - Every answer they disagreed on (141), plus 40 they agreed on, was graded again
+    by blind adjudicators: agents that saw only the question, the answer key and
+    the answer, with the judges' rubric. The adjudicators matched the judges'
+    shared verdict on 98.6% of facts where the judges agreed. Where they
+    disagreed, the adjudicators sided with each judge about equally (83.7% and
+    83.4%).
+  - On the disputed answers the two judges leaned in opposite directions:
+    claude-sonnet-5 scored `grep` answers higher than the adjudicators did, and
+    gpt-5.6-sol scored them lower. Their pooled `mcp` − `grep` quality deltas
+    were −0.4 and +1.0 points.
+  - The adjudicators also split among themselves on facts stated more widely than
+    the question needs, such as a packet-identifier rule listing SUBSCRIBE,
+    UNSUBSCRIBE and PUBLISH in a question about SUBSCRIBE.
+  - Judge prompt version 2 settles that case: such a fact is present when the
+    answer states it fully for the cases the question asks about, while a missing
+    identifier, value, time limit, condition or requirement strength within those
+    cases still makes it absent.
+  - With version 2 the judges agreed on 95.7% of fact verdicts (kappa 0.65), and
+    their pooled deltas came within 0.3 points of each other (+0.6 and +0.3).
+  - Answers are scored by both judges as a panel, with the mean of their scores, so
+    their leanings offset. A panel run's `passed` is the share of judges that pass
+    it.
 - Judged scoring (version 2.0) weighs essential facts 2 and supporting facts 1. Each
   wrong claim made or fact contradicted costs a flat 0.5, unlike the bundled
   corpus's violation rate, which divides by the number of forbidden claims. A run

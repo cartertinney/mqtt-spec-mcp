@@ -78,7 +78,11 @@ class Pins(_Strict):
 
 
 class JudgeSettings(_Strict):
-    model: Annotated[str, Field(min_length=1)]
+    """One judge, or a panel scored by the mean of its judges' scores."""
+
+    models: Annotated[
+        tuple[Annotated[str, Field(min_length=1)], ...], Field(min_length=1)
+    ]
     prompt_version: str
     prompt_hash: str
     scoring_version: str
@@ -123,6 +127,10 @@ class Plan(_Strict):
             raise ValueError("models repeat")
         if len(set(self.conditions)) < len(self.conditions):
             raise ValueError("conditions repeat")
+        if len(set(self.judge.models)) < len(self.judge.models):
+            raise ValueError("judge models repeat")
+        if set(self.judge.models) & set(self.models):
+            raise ValueError("a judge must not be one of the models under test")
         pair = {self.analysis.baseline, self.analysis.candidate}
         if len(pair) < 2 or not pair <= set(self.conditions):
             raise ValueError("baseline and candidate must be two of the conditions")
@@ -316,7 +324,7 @@ def render_plan(
     conditions: Sequence[Condition],
     epochs: int,
     seed: int,
-    judge_model: str,
+    judge_models: Sequence[str],
     baseline: Condition,
     candidate: Condition,
     server_commit: str | None,
@@ -354,7 +362,7 @@ def render_plan(
     lines += [
         "",
         "[judge]",
-        f"model = {_toml(judge_model)}",
+        f"models = {_toml(list(judge_models))}",
         f"prompt_version = {_toml(JUDGE_PROMPT_VERSION)}",
         f"prompt_hash = {_toml(judge_hash())}",
         f"scoring_version = {_toml(SCORING_VERSION)}",
@@ -401,7 +409,7 @@ def describe(loaded: LoadedPlan) -> list[str]:
     except CorpusError:
         pass
     lines.append(
-        f"judge {plan.judge.model}; {plan.analysis.candidate} vs "
+        f"judges {', '.join(plan.judge.models)}; {plan.analysis.candidate} vs "
         f"{plan.analysis.baseline}: "
         + "; ".join(
             f"{c.name} ({c.metric} {c.scope} CI low > {c.ci_low_above})"
@@ -425,7 +433,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     init.add_argument("--epochs", type=int, default=2)
     init.add_argument("--seed", type=int, default=20261101)
-    init.add_argument("--judge-model", required=True)
+    init.add_argument(
+        "--judge-models",
+        "--judge-model",
+        nargs="+",
+        required=True,
+        help="one judge, or a panel (scores are averaged)",
+    )
     init.add_argument("--baseline", choices=CONDITIONS, default="grep")
     init.add_argument("--candidate", choices=CONDITIONS, default="mcp")
     init.add_argument("--description", default="TODO: what this run decides")
@@ -447,7 +461,7 @@ def main(argv: list[str] | None = None) -> int:
                 conditions=args.conditions,
                 epochs=args.epochs,
                 seed=args.seed,
-                judge_model=args.judge_model,
+                judge_models=args.judge_models,
                 baseline=args.baseline,
                 candidate=args.candidate,
                 server_commit=_head_commit(),

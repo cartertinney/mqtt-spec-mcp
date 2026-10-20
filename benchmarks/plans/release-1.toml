@@ -1,0 +1,51 @@
+# Analysis plan: commit it before the run it governs; edit nothing after.
+name = "release-1"
+description = "Release 1: the server at 4bd4586 on the sealed test split of the independent corpus 1.1.0. Five models from three families answer every question with mcp and with grep side by side, in two epochs. A judge panel (claude-sonnet-5 and gpt-5.6-sol, prompt version 2) scores each answer with the mean of the two judges' scores. The claim, pooled over models: mcp gives better answers than grep and uses fewer tokens."
+corpus = "independent"
+corpus_version = "1.1.0"
+manifest_sha256 = "a8fdcb21f5d69eb0679b4feaa2c34a60e26a41135a2b81880e9524fd8c78ba15"
+split = "test"
+models = ["claude-sonnet-5.5", "gpt-6.1-sol", "claude-haiku-5.5", "gpt-6-luna", "grok-4.7"]
+conditions = ["mcp", "grep"]
+epochs = 2
+seed = 20261101
+timeout = 240.0
+server_commit = "4bd45860349029fccf1c147450dd7ae325943de7"  # for reference
+
+# What each condition gives the model; the runner refuses other code.
+[hashes]
+base = "2674c0db4400e325"
+
+[hashes.conditions.mcp]
+prompt = "187004b16de333bb"
+reference = "aef28c93b66ed5d6"
+
+[hashes.conditions.grep]
+prompt = "aefc6f3b951d87f7"
+reference = "0407e7b8030d9ba0"
+
+[judge]
+models = ["claude-sonnet-5", "gpt-5.6-sol"]
+prompt_version = "2"
+prompt_hash = "204e3c5ddeafe39d"
+scoring_version = "2.0"
+
+# Decision rule: every check must pass. A check compares the 95% CI's
+# lower bound with ci_low_above, pooled over models or for each model.
+# Metrics: quality_delta, pass_delta, token_reduction, weighted_token_reduction, speedup.
+[analysis]
+baseline = "grep"
+candidate = "mcp"
+
+# Chosen 2026-10-20 before any test answer existed: mcp must beat grep on both.
+[[analysis.checks]]
+name = "better answers than grep"
+metric = "quality_delta"
+scope = "pooled"
+ci_low_above = 0.0
+
+[[analysis.checks]]
+name = "fewer tokens than grep"
+metric = "token_reduction"
+scope = "pooled"
+ci_low_above = 0.0

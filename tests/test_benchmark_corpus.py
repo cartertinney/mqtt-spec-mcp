@@ -762,6 +762,51 @@ def test_sealed_test_split_reports_only_under_its_plan(
     assert "test-secret" not in text
 
 
+def test_plan_checks_can_target_question_kinds(
+    demo: corpus.Corpus, bench: Path
+) -> None:
+    path = write_plan(bench, demo, split="test", name="release")
+    text = path.read_text("utf-8")
+    text += """
+[[analysis.checks]]
+name = "better on scenarios"
+metric = "quality_delta"
+kinds = ["scenario"]
+ci_low_above = 0.0
+
+[[analysis.checks]]
+name = "no lookups to judge"
+metric = "quality_delta"
+kinds = ["lookup"]
+ci_low_above = -0.01
+"""
+    path.write_text(text, "utf-8")
+    loaded = plan.load_plan(path)
+    assert [c.slice for c in loaded.plan.analysis.checks] == [
+        "all",
+        "all",
+        "kinds=scenario",
+        "kinds=lookup",
+    ]
+    judged_runs(
+        demo.cases("test"), loaded.results_path, split="test", plan_id=loaded.id
+    )
+    out = bench / "kinds.json"
+    assert report.main(["--plan", str(path), "--json-output", str(out)]) == 1
+    payload = json.loads(out.read_text("utf-8"))
+    checks = {c["name"]: c for c in payload["decision"]["checks"]}
+    assert checks["better on scenarios"]["passed"]
+    assert checks["better on scenarios"]["outcomes"][0]["model"] == report.POOLED
+    assert checks["no lookups to judge"]["outcomes"] == []
+    assert not checks["no lookups to judge"]["passed"]
+    assert payload["decision"]["status"] == "FAIL"
+    slices = {r["slice"] for r in payload["comparisons_by_slice"]}
+    assert "kinds=scenario" in slices
+    path.write_text(text.replace('kinds = ["lookup"]', 'kinds = ["lookup", "lookup"]'))
+    with pytest.raises(PlanError, match="kinds repeat"):
+        plan.load_plan(path)
+
+
 def test_panel_scores_are_the_mean_of_the_judges() -> None:
     case = case_of(DEV[0])
     strict = judgment_for(

@@ -472,7 +472,8 @@ uv run mqtt-spec-bench-report --plan benchmarks/plans/release-1.toml
   - hashes of what each condition gives the model;
   - the judge models, prompt and scoring version;
   - the decision rule: checks on the lower bound of a 95% CI, pooled over models
-    or for each model.
+    or for each model, over all questions or only those of given kinds (for
+    example the multi-section synthesis, scenario and edge questions).
 
   The runner refuses a test plan that is uncommitted or no longer matches the code,
   and it records the plan's id on every run. The report then prints PASS or FAIL,

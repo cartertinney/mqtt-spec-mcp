@@ -35,6 +35,7 @@ from .corpus import (
     Corpus,
     CorpusCase,
     CorpusError,
+    Kind,
     Split,
     bench_dir,
     open_corpus,
@@ -90,12 +91,25 @@ class JudgeSettings(_Strict):
 
 class Check(_Strict):
     """Passes when the 95% CI's lower bound of ``metric`` is above the threshold,
-    for the pooled comparison or for every model's."""
+    for the pooled comparison or for every model's, over the questions of
+    ``kinds`` (all questions when empty). A check with no questions fails."""
 
     name: str
     metric: Metric
     scope: Literal["pooled", "each_model"] = "pooled"
+    kinds: tuple[Kind, ...] = ()
     ci_low_above: float
+
+    @model_validator(mode="after")
+    def _distinct_kinds(self) -> Check:
+        if len(set(self.kinds)) < len(self.kinds):
+            raise ValueError("kinds repeat")
+        return self
+
+    @property
+    def slice(self) -> str:
+        """The report slice this check reads: ``all`` or ``kinds=a+b``."""
+        return "kinds=" + "+".join(sorted(self.kinds)) if self.kinds else "all"
 
 
 class Analysis(_Strict):
@@ -368,7 +382,8 @@ def render_plan(
         f"scoring_version = {_toml(SCORING_VERSION)}",
         "",
         "# Decision rule: every check must pass. A check compares the 95% CI's",
-        "# lower bound with ci_low_above, pooled over models or for each model.",
+        "# lower bound with ci_low_above, pooled over models or for each model,",
+        "# over all questions or those of the check's kinds.",
         "# Metrics: " + ", ".join(METRICS) + ".",
         "[analysis]",
         f"baseline = {_toml(baseline)}",

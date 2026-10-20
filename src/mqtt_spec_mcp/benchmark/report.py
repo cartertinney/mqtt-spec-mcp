@@ -353,17 +353,18 @@ def compare(
 def decide(
     plan: Plan, comparisons: list[dict[str, Any]], complete: bool
 ) -> dict[str, Any]:
-    """The plan's decision rule over the unsliced comparisons of its pair."""
+    """The plan's decision rule: each check reads its slice's comparisons of the
+    plan's pair."""
     pair = (plan.analysis.baseline, plan.analysis.candidate)
-    rows = [
-        r
-        for r in comparisons
-        if r["slice"] == "all" and (r["baseline"], r["candidate"]) == pair
-    ]
-    per_model = [r for r in rows if r["model"] != POOLED]
-    pooled = [r for r in rows if r["model"] == POOLED] or per_model
     checks = []
     for check in plan.analysis.checks:
+        rows = [
+            r
+            for r in comparisons
+            if r["slice"] == check.slice and (r["baseline"], r["candidate"]) == pair
+        ]
+        per_model = [r for r in rows if r["model"] != POOLED]
+        pooled = [r for r in rows if r["model"] == POOLED] or per_model
         chosen = pooled if check.scope == "pooled" else per_model
         outcomes = [
             {
@@ -378,6 +379,7 @@ def decide(
                 "name": check.name,
                 "metric": check.metric,
                 "scope": check.scope,
+                "slice": check.slice,
                 "ci_low_above": check.ci_low_above,
                 "outcomes": outcomes,
                 "passed": bool(outcomes) and all(o["passed"] for o in outcomes),
@@ -475,8 +477,9 @@ def to_markdown(
             lows = ", ".join(f"{o['model']} {o['ci_low']}" for o in check["outcomes"])
             verdict = "pass" if check["passed"] else "fail"
             lines.append(
-                f"- {check['name']}: {check['metric']} ({check['scope']}) CI low "
-                f"{lows or 'n/a'} > {check['ci_low_above']}: {verdict}"
+                f"- {check['name']}: {check['metric']} ({check['scope']}, "
+                f"{check['slice']}) CI low {lows or 'n/a'} > "
+                f"{check['ci_low_above']}: {verdict}"
             )
     return "\n".join(lines)
 
@@ -485,6 +488,12 @@ def _slice(
     cases: dict[str, CorpusCase], field: str, value: str
 ) -> Callable[[RunRecord], bool]:
     return lambda r: getattr(cases[r.case_id], field) == value
+
+
+def _kinds(
+    cases: dict[str, CorpusCase], kinds: set[str]
+) -> Callable[[RunRecord], bool]:
+    return lambda r: cases[r.case_id].kind in kinds
 
 
 def _coverage(
@@ -602,6 +611,11 @@ def _report(args: argparse.Namespace) -> int:
                 "plan": loaded.id,
                 "coverage": _coverage(loaded.plan, cases, records),
             }
+            labels = {label for label, _ in slices}
+            for check in loaded.plan.analysis.checks:
+                if check.kinds and check.slice not in labels:
+                    labels.add(check.slice)
+                    slices.append((check.slice, _kinds(cases, set(check.kinds))))
     elif loaded is not None:
         raise ReportError("analysis plans apply to format-2 corpora")
     elif args.rescore:
@@ -623,7 +637,7 @@ def _report(args: argparse.Namespace) -> int:
     ]
     if loaded is not None and decision is not None:
         done, planned = decision["coverage"]
-        decision.update(decide(loaded.plan, comparisons, done == planned))
+        decision.update(decide(loaded.plan, comparisons + per_slice, done == planned))
     print(
         to_markdown(
             summary, comparisons + per_version + per_slice, by_version, decision

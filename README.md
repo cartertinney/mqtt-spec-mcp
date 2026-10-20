@@ -22,12 +22,15 @@ publications remain the authoritative text.
 
 | Version | Publication | Published | Source |
 | --- | --- | --- | --- |
-| 3.1.1 | MQTT Version 3.1.1, OASIS Standard (editors A. Banks, R. Gupta) | 2014-10-29 | [mqtt-v3.1.1-os.html](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html) |
+| 3.1.1 | MQTT Version 3.1.1 Plus Errata 01, OASIS Standard Incorporating Approved Errata 01 (editors A. Banks, R. Gupta) | 2015-12-10 (standard 2014-10-29) | [mqtt-v3.1.1-errata01-os-complete.html](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/errata01/os/mqtt-v3.1.1-errata01-os-complete.html) |
 | 5.0 | MQTT Version 5.0, OASIS Standard (editors A. Banks, E. Briggs, K. Borgendale, R. Gupta) | 2019-03-07 | [mqtt-v5.0-os.html](https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html) |
 
-3.1.1 is indexed from the original 2014 OASIS Standard HTML, not the Errata 01
-consolidated edition, and no errata are applied. That publication names its `.doc`
-edition as authoritative. MQTT 3.1 (pre-OASIS) is not supported.
+3.1.1 is indexed from the edition that incorporates its one approved erratum: the
+Remaining Length decoding pseudocode in section 2.2.3 checks the range before
+updating the multiplier (the 2014 text rejected valid four-byte lengths). The rest
+of the text is the 2014 standard's. That HTML shows the correction as tracked
+changes; the index keeps the inserted text and drops the deleted. Each publication
+names its `.doc` edition as authoritative. MQTT 3.1 (pre-OASIS) is not supported.
 
 ## Install and run
 
@@ -278,7 +281,8 @@ The bundled indexes (`src/mqtt_spec_mcp/data/mqtt-v3.1.1.json`,
 
 ```bash
 uv run python -m scripts.generate_index --version 5.0
-uv run python -m scripts.generate_index --version 3.1.1 --source ./mqtt-v3.1.1-os.html
+uv run python -m scripts.generate_index --version 3.1.1 \
+    --source ./mqtt-v3.1.1-errata01-os-complete.html
 ```
 
 The generator downloads (or reads) the source, canonicalizes Cloudflare rewrites,

@@ -42,11 +42,16 @@ PINS: dict[VersionId, Pin] = {
     "3.1.1": Pin(
         version="3.1.1",
         title="MQTT Version 3.1.1",
-        published="2014-10-29",
+        # MQTT Version 3.1.1 Plus Errata 01 (OASIS Standard Incorporating Approved
+        # Errata 01): the 2014 standard with its one approved erratum applied.
+        published="2015-12-10",
         editors=("Andrew Banks", "Rahul Gupta"),
-        source_url="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html",
-        source_sha256="93167b6b27ec9b190e7f258fea4a591903480f7803af23b7b7fa31e99bce96c9",
-        copyright="Copyright © OASIS Open 2014. All Rights Reserved.",
+        source_url=(
+            "https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/errata01/os/"
+            "mqtt-v3.1.1-errata01-os-complete.html"
+        ),
+        source_sha256="82bbab8153f69854f240dfccb0bcd9457eb058feb268a9b51ab3db43a5ee8dc4",
+        copyright="Copyright © OASIS Open 2015. All Rights Reserved.",
         data_file="mqtt-v3.1.1.json",
     ),
     "5.0": Pin(

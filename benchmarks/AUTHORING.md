@@ -41,6 +41,8 @@ The corpus has three files under `src/mqtt_spec_mcp/benchmark/data/`:
 The only references were the two OASIS publications listed in the README: MQTT
 Version 5.0 (OASIS Standard, 07 March 2019) and MQTT Version 3.1.1 (OASIS
 Standard, 29 October 2014), read through this project's locally bundled indexes.
+3.1.1 has since been re-indexed from the edition with Errata 01 applied; that
+erratum changes only the pseudocode in section 2.2.3, which no case relies on.
 Agents read sections with `mqtt_spec_get`, `mqtt_spec_search` and
 `mqtt_spec_lookup`, or directly from the in-memory section text. Each case's
 `provenance` field names the sections its answer key came from; in comparison

@@ -4,7 +4,7 @@ Usage::
 
     uv run python -m scripts.generate_index --version 5.0
     uv run python -m scripts.generate_index --version 3.1.1 \
-        --source ./mqtt-v3.1.1-os.html
+        --source ./mqtt-v3.1.1-errata01-os-complete.html
 
 Only the selected version's pin is checked. Nothing is written unless the
 source checksum matches the pin and the completeness gate passes.

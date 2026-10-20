@@ -646,6 +646,15 @@ def test_identifier_queries_are_not_rewritten(engines: dict[str, SpecEngine]) ->
     assert search(engines["5.0"], "keepalive")["query"] == "keepalive"
 
 
+def test_311_is_the_errata_01_edition(call: Call) -> None:
+    text = call("mqtt_spec_get", version="3.1.1", section="2.2.3").text
+    assert "mqtt-v3.1.1-errata01-os-complete.html" in text
+    # Errata 01: the range check comes before the multiplier update, once.
+    check = text.index("if (multiplier > 128*128*128)")
+    assert check < text.index("multiplier *= 128")
+    assert text.count("multiplier = 1") == 1
+
+
 def test_evidence_excerpts_are_verbatim(engines: dict[str, SpecEngine]) -> None:
     result = search(engines["5.0"], "Session Expiry Interval DISCONNECT")
     for entry in result["sections"]:

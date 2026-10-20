@@ -54,6 +54,21 @@ def test_nested_table_content_is_not_a_separate_block() -> None:
     assert blocks[0].rows == [["outer inner"]]
 
 
+def test_change_marks_keep_inserted_and_drop_deleted_text() -> None:
+    # The 3.1.1 Plus Errata 01 edition marks its correction with <ins> and <del>.
+    html = page(
+        "<h1>1 Intro</h1>"
+        "<p><span class=msoIns><ins cite='x'>if (multiplier &gt; 128)</ins></span></p>"
+        "<p><span class=msoIns><ins cite='x'>multiplier *= 128</ins></span></p>"
+        "<p><span class=msoDel><del cite='x'>multiplier *= 128</del></span></p>"
+        "<p><span class=msoDel><del cite='x'>if (multiplier &gt; 128)</del></span></p>"
+        "<p>kept <del>removed </del>text</p>"
+    )
+    blocks = parse_document(html).sections[0].blocks
+    texts = [b.text for b in blocks if isinstance(b, RawParagraph)]
+    assert texts == ["if (multiplier > 128)", "multiplier *= 128", "kept text"]
+
+
 def test_cloudflare_canonicalization_is_stable() -> None:
     email = "editor@example.org"
     clean = (

@@ -82,6 +82,10 @@ def _strip_noise(soup: BeautifulSoup) -> None:
         comment.extract()
     for tag in soup.find_all(_is_hidden):
         tag.decompose()
+    # A change-marked edition (3.1.1 Plus Errata 01) keeps removed text in <del>
+    # (shown struck through); it is not part of the specification. Text in <ins> is.
+    for tag in soup.find_all("del"):
+        tag.decompose()
 
 
 def _has_container_ancestor(tag: Tag) -> bool:

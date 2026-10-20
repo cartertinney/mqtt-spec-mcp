@@ -863,12 +863,13 @@ def _result(
         next_step = (
             "State each rule here that bears on the question, with its "
             "MUST/SHOULD/MAY and conditions, and cite its section. Sections marked "
-            "(excerpt: ...) hold more than is shown, often the exceptions: before "
-            "saying MQTT allows, forbids, leaves open or does not mention something, "
-            "or that a rule has no exception, get the section that would say it with "
-            f"mqtt_spec_get (version='{v}'). Search MQTT {v} again only for a part "
-            "of the question these sections do not cover (to compare versions, "
-            f"search MQTT {OTHER_VERSION[v]} once)."
+            "(excerpt: ...) hold more than is shown. If your answer would say MQTT "
+            "does not require, define or mention something, leaves it open or "
+            "optional, or that a rule has no exception, first get the one section "
+            f"that would say otherwise with mqtt_spec_get (version='{v}'); otherwise "
+            f"answer from these results. Search MQTT {v} again only for a part of the "
+            "question these sections do not cover (to compare versions, search MQTT "
+            f"{OTHER_VERSION[v]} once)."
         )
     else:
         next_step = (

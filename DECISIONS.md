@@ -226,10 +226,11 @@ appear in the body.
   as v8 did.
 - The pack ends with the next step: state each rule that bears on the question,
   with its MUST/SHOULD/MAY and conditions, and cite its section. Sections marked as
-  excerpts hold more than is shown, often the exceptions: before saying MQTT
-  allows, forbids, leaves open or does not mention something, or that a rule has
-  no exception, get the section that would say it. Search this version again only
-  for a part of the question the results don't cover (to compare versions, search
+  excerpts hold more than is shown. If the answer would say MQTT does not require,
+  define or mention something, leaves it open or optional, or that a rule has no
+  exception, first get the one section that would say otherwise; otherwise answer
+  from the results. Search this version again only for a part of the question the
+  results don't cover (to compare versions, search
   the other one once). The version-specific wording came after 11 of 60
   comparison runs consulted only one version (quality 0.80 to 0.88, against 0.92
   to 0.97 with both).
@@ -249,7 +250,21 @@ appear in the body.
   - Appending each excerpted section's omitted requirement sentences instead
     would have grown packs by 28% to 38% and shown only 4 of the 13 unseen rules
     behind errors, because many governing sentences carry no MUST or label. So
-    the fix tells the agent what it has not seen instead. With no match
+    the fix tells the agent what it has not seen instead.
+  - The first wording ("before saying MQTT allows, forbids, leaves open or does
+    not mention something, ... get the section") was measured on dev side by side
+    with `grep` (5 models, 710 runs).
+    - `mcp` answers with an error fell from 3.4% to 2.3%, against `grep`'s 3.2%.
+      Synthesis questions went from −0.6 to +3.5 points against `grep`, and the
+      pooled quality delta from +0.4 to +1.9.
+    - `mcp` tokens rose from 11,390 to 18,105 per answer, level with `grep`.
+    - The Claude models fetched a section in about 20% of answers and gained 4 to
+      5 points. The GPT and Grok models read "allows or forbids", which fits
+      nearly every answer, as "always fetch": they fetched in 80% to 96% of
+      answers, up to 3.4 fetches per answer, and gained nothing.
+    - The trigger is therefore narrowed to the claims behind the errors: that MQTT
+      is silent, leaves something open or optional, or that a rule has no
+      exception. With no match
   it says nothing matched in this version, that this is not proof of absence, and
   that it says nothing about any other version.
 - The tools advertise only the parameters agents used in 803 benchmark runs

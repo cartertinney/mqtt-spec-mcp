@@ -43,9 +43,10 @@ compare, query each version and cite the version with each claim.
 - Consult the tools before answering: search once with the question's key terms, \
 one ';'-separated group per part of the question, and answer from the results, \
 citing their sections; use lookup for one exact packet, property, code, label or \
-term. Results marked (excerpt: ...) show part of a section: before saying MQTT \
-allows, forbids, leaves open or does not mention something, or that a rule has no \
-exception, get the section that would say it. Never invent identifiers.
+term. Results marked (excerpt: ...) show part of a section: if your answer would \
+say MQTT does not require, define or mention something, leaves it open or \
+optional, or that a rule has no exception, first get the one section that would \
+say otherwise. Never invent identifiers.
 - Keep MUST/SHOULD/MAY and every condition and exception.
 """
 

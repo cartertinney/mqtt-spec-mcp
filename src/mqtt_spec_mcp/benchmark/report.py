@@ -1,9 +1,16 @@
-"""Benchmark report: per-condition summaries, paired comparisons and release gates.
+"""Benchmark report: per-condition summaries, paired comparisons and decisions.
 
-Records are paired by (model, case, epoch). Confidence intervals come from a
-seeded (deterministic) paired bootstrap over those pairs. Runs whose prompt,
-benchmark or server hashes differ are never compared: the report refuses to mix
-them. ``--rescore`` re-applies the current scorer to stored answers offline.
+Records are paired by (model, case, epoch). Confidence intervals come from a seeded
+(deterministic) bootstrap that resamples cases, keeping each case's pairs (epochs,
+models) together; with several models a pooled row combines their pairs. Runs whose
+prompt, benchmark or server hashes differ are never compared: the report refuses to
+mix them. ``--rescore`` re-applies the current scorer to stored answers of the
+bundled corpus offline.
+
+Corpus-format-2 runs are scored from cached judge verdicts (``judge.py``): the
+report never calls a model, and refuses answers without a judgment. The sealed
+test split is reported only under its analysis plan, as aggregates, with the plan's
+decision: PASS, FAIL, or INCOMPLETE while planned runs are missing or failed.
 """
 
 from __future__ import annotations
@@ -20,11 +27,25 @@ from pathlib import Path
 from typing import Any
 
 from .cases import Case, load_cases
+from .corpus import CorpusCase, CorpusError
+from .judge import judged_score, judgment_key, load_judgments, scorer_id
+from .plan import (
+    LoadedPlan,
+    Plan,
+    PlanError,
+    corpus_cases,
+    corpus_problems,
+    judge_problems,
+    judgments_path,
+    load_plan,
+)
 from .runs import RunRecord, case_hash, latest_records, load_records
 from .scorer import SCORER_VERSION, score_answer
 
 BOOTSTRAP_SAMPLES = 2000
 BOOTSTRAP_SEED = 1729
+POOLED = "all models"
+Pair = tuple[RunRecord, RunRecord]
 
 
 class ReportError(RuntimeError):
@@ -48,6 +69,33 @@ def rescore(records: list[RunRecord], cases: dict[str, Case]) -> None:
             )
         record.score = score_answer(case, record.answer).to_dict()
         record.scorer_version = SCORER_VERSION
+
+
+def score_judged(
+    records: list[RunRecord],
+    cases: dict[str, CorpusCase],
+    judge_model: str,
+    judgments: Path | Sequence[Path],
+) -> None:
+    """Score format-2 answers from cached judgments of ``judge_model``."""
+    paths = [judgments] if isinstance(judgments, Path) else list(judgments)
+    found = load_judgments(paths)
+    missing = 0
+    for record in records:
+        if record.error is not None:
+            continue
+        case = cases[record.case_id]
+        judgment = found.get(judgment_key(judge_model, case, record.answer))
+        if judgment is None:
+            missing += 1
+            continue
+        record.score = judged_score(case, record.answer, judgment)
+        record.scorer_version = scorer_id(judge_model)
+    if missing:
+        raise ReportError(
+            f"{missing} answer(s) have no judgment by {judge_model}: run "
+            "mqtt-spec-bench-judge first"
+        )
 
 
 def check_compatible(records: list[RunRecord]) -> dict[str, Any]:
@@ -95,17 +143,23 @@ def check_compatible(records: list[RunRecord]) -> dict[str, Any]:
 
 
 def bootstrap_ci(
-    pairs: Sequence[tuple[RunRecord, RunRecord]],
-    statistic: Callable[[Sequence[tuple[RunRecord, RunRecord]]], float],
+    pairs: Sequence[Pair],
+    statistic: Callable[[Sequence[Pair]], float],
     samples: int = BOOTSTRAP_SAMPLES,
     seed: int = BOOTSTRAP_SEED,
 ) -> tuple[float, float, float]:
+    """Point estimate and 95% interval, resampling cases: a case's pairs from
+    several epochs or models are not independent, so they are drawn together."""
     point = statistic(pairs)
-    if len(pairs) < 2:
+    by_case: dict[str, list[Pair]] = defaultdict(list)
+    for pair in pairs:
+        by_case[pair[1].case_id].append(pair)
+    clusters = list(by_case.values())
+    if len(clusters) < 2:
         return point, point, point
     rng = random.Random(seed)  # noqa: S311 - deterministic resampling, not crypto
     values = sorted(
-        statistic([pairs[rng.randrange(len(pairs))] for _ in pairs])
+        statistic([p for _ in clusters for p in clusters[rng.randrange(len(clusters))]])
         for _ in range(samples)
     )
     low = values[int(0.025 * (samples - 1))]
@@ -121,20 +175,48 @@ def _passed(r: RunRecord) -> bool:
     return bool(r.score and r.score["passed"])
 
 
-def quality_delta(pairs: Sequence[tuple[RunRecord, RunRecord]]) -> float:
+def _errors(r: RunRecord) -> int:
+    """Wrong claims made, plus facts contradicted (judged runs)."""
+    if not r.score:
+        return 0
+    return len(r.score.get("violations", ())) + len(
+        r.score.get("facts_contradicted", ())
+    )
+
+
+def quality_delta(pairs: Sequence[Pair]) -> float:
     return statistics.fmean(_quality(c) - _quality(b) for b, c in pairs)
 
 
-def token_reduction(pairs: Sequence[tuple[RunRecord, RunRecord]]) -> float:
+def pass_delta(pairs: Sequence[Pair]) -> float:
+    return statistics.fmean(float(_passed(c)) - float(_passed(b)) for b, c in pairs)
+
+
+def token_reduction(pairs: Sequence[Pair]) -> float:
     base = sum(b.usage.total_tokens for b, _ in pairs)
     cand = sum(c.usage.total_tokens for _, c in pairs)
     return 1 - cand / base if base else 0.0
 
 
-def speedup(pairs: Sequence[tuple[RunRecord, RunRecord]]) -> float:
+def weighted_token_reduction(pairs: Sequence[Pair]) -> float:
+    base = sum(b.weighted_tokens for b, _ in pairs)
+    cand = sum(c.weighted_tokens for _, c in pairs)
+    return 1 - cand / base if base else 0.0
+
+
+def speedup(pairs: Sequence[Pair]) -> float:
     base = sum(b.latency_s for b, _ in pairs)
     cand = sum(c.latency_s for _, c in pairs)
     return base / cand if cand else 0.0
+
+
+STATISTICS: tuple[tuple[str, Callable[[Sequence[Pair]], float]], ...] = (
+    ("quality_delta", quality_delta),
+    ("pass_delta", pass_delta),
+    ("token_reduction", token_reduction),
+    ("weighted_token_reduction", weighted_token_reduction),
+    ("speedup", speedup),
+)
 
 
 def summarize(
@@ -160,9 +242,21 @@ def summarize(
                 "errors": len(group) - n,
                 "quality": round(statistics.fmean(map(_quality, ok)), 4) if ok else 0.0,
                 "pass_rate": round(passed / n, 4) if ok else 0.0,
+                "fact_recall": _mean(
+                    [
+                        float(r.score["fact_recall"])
+                        for r in ok
+                        if r.score and "fact_recall" in r.score
+                    ],
+                    4,
+                ),
+                "error_rate": round(sum(_errors(r) > 0 for r in ok) / n, 4)
+                if ok
+                else 0.0,
                 "tool_calls": _mean([len(r.tool_calls) for r in ok], 2),
                 "api_calls": _mean([r.usage.api_calls for r in ok], 2),
                 "tokens_mean": _mean([r.usage.total_tokens for r in ok], 0),
+                "weighted_tokens_mean": _mean([r.weighted_tokens for r in ok], 0),
                 "input_mean": _mean([r.usage.input_tokens for r in ok], 0),
                 "output_mean": _mean([r.usage.output_tokens for r in ok], 0),
                 "cache_read_mean": _mean([r.usage.cache_read_tokens for r in ok], 0),
@@ -193,13 +287,13 @@ def _percentile(values: Sequence[float], pct: float) -> float:
 
 def pair_records(
     records: list[RunRecord], baseline: str, candidate: str, version: str = "all"
-) -> dict[str, list[tuple[RunRecord, RunRecord]]]:
+) -> dict[str, list[Pair]]:
     index = {
         (r.model, r.condition, r.case_id, r.epoch): r
         for r in records
         if r.error is None and version in ("all", r.version)
     }
-    pairs: dict[str, list[tuple[RunRecord, RunRecord]]] = defaultdict(list)
+    pairs: dict[str, list[Pair]] = defaultdict(list)
     for (model, condition, case_id, epoch), cand in sorted(index.items()):
         if condition != candidate:
             continue
@@ -210,22 +304,33 @@ def pair_records(
 
 
 def compare(
-    records: list[RunRecord], baseline: str, candidate: str, version: str = "all"
+    records: list[RunRecord],
+    baseline: str,
+    candidate: str,
+    version: str = "all",
+    *,
+    label: str | None = None,
+    keep: Callable[[RunRecord], bool] | None = None,
 ) -> list[dict[str, Any]]:
+    """Paired comparison per model, and pooled over models when there are
+    several. ``version`` or ``keep`` restrict the runs; ``label`` names the slice."""
+    chosen = [r for r in records if keep is None or keep(r)]
+    by_model = pair_records(chosen, baseline, candidate, version)
+    groups = list(by_model.items())
+    if len(groups) > 1:
+        groups.append((POOLED, [p for pairs in by_model.values() for p in pairs]))
     out = []
-    for model, pairs in pair_records(records, baseline, candidate, version).items():
+    for model, pairs in groups:
         row: dict[str, Any] = {
             "model": model,
+            "slice": label or version,
             "version": version,
             "baseline": baseline,
             "candidate": candidate,
             "pairs": len(pairs),
+            "cases": len({c.case_id for _, c in pairs}),
         }
-        for name, fn in (
-            ("quality_delta", quality_delta),
-            ("token_reduction", token_reduction),
-            ("speedup", speedup),
-        ):
+        for name, fn in STATISTICS:
             point, low, high = bootstrap_ci(pairs, fn)
             row[name] = {
                 "point": round(point, 4),
@@ -233,6 +338,44 @@ def compare(
             }
         out.append(row)
     return out
+
+
+def decide(
+    plan: Plan, comparisons: list[dict[str, Any]], complete: bool
+) -> dict[str, Any]:
+    """The plan's decision rule over the unsliced comparisons of its pair."""
+    pair = (plan.analysis.baseline, plan.analysis.candidate)
+    rows = [
+        r
+        for r in comparisons
+        if r["slice"] == "all" and (r["baseline"], r["candidate"]) == pair
+    ]
+    per_model = [r for r in rows if r["model"] != POOLED]
+    pooled = [r for r in rows if r["model"] == POOLED] or per_model
+    checks = []
+    for check in plan.analysis.checks:
+        chosen = pooled if check.scope == "pooled" else per_model
+        outcomes = [
+            {
+                "model": r["model"],
+                "ci_low": r[check.metric]["ci95"][0],
+                "passed": r[check.metric]["ci95"][0] > check.ci_low_above,
+            }
+            for r in chosen
+        ]
+        checks.append(
+            {
+                "name": check.name,
+                "metric": check.metric,
+                "scope": check.scope,
+                "ci_low_above": check.ci_low_above,
+                "outcomes": outcomes,
+                "passed": bool(outcomes) and all(o["passed"] for o in outcomes),
+            }
+        )
+    passed = all(c["passed"] for c in checks)
+    status = "PASS" if passed else "FAIL"
+    return {"status": status if complete else "INCOMPLETE", "checks": checks}
 
 
 def apply_gates(
@@ -267,15 +410,17 @@ def apply_gates(
 def _summary_table(rows: list[dict[str, Any]]) -> list[str]:
     lines = [
         "| model | condition | version | runs | errors | quality | pass rate | "
-        "tool calls | API calls | tokens/run | input/run | output/run | "
-        "tokens/correct | cost/run | latency s (mean / p95) |",
+        "fact recall | wrong-claim rate | tool calls | API calls | tokens/run | "
+        "input/run | output/run | tokens/correct | cost/run | "
+        "latency s (mean / p95) |",
         "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | "
-        "---: | ---: | ---: | ---: |",
+        "---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for r in rows:
         lines.append(
             f"| {r['model']} | {r['condition']} | {r['version']} | {r['runs']} | "
             f"{r['errors']} | {r['quality']:.3f} | {r['pass_rate']:.3f} | "
+            f"{r['fact_recall']:.3f} | {r['error_rate']:.3f} | "
             f"{r['tool_calls']} | {r['api_calls']} | {r['tokens_mean']:.0f} | "
             f"{r['input_mean']:.0f} | {r['output_mean']:.0f} | "
             f"{r['tokens_per_correct']} | {r['cost_mean']} | "
@@ -288,6 +433,7 @@ def to_markdown(
     summary: list[dict[str, Any]],
     comparisons: list[dict[str, Any]],
     by_version: list[dict[str, Any]] | None = None,
+    decision: dict[str, Any] | None = None,
 ) -> str:
     lines = _summary_table(summary)
     if by_version:
@@ -295,32 +441,78 @@ def to_markdown(
     if comparisons:
         lines += [
             "",
-            "| model | version | candidate vs baseline | pairs | "
-            "quality delta (95% CI) | token reduction (95% CI) | speedup (95% CI) |",
-            "| --- | --- | --- | ---: | --- | --- | --- |",
+            "| model | slice | candidate vs baseline | pairs | "
+            "quality delta (95% CI) | pass-rate delta (95% CI) | "
+            "token reduction (95% CI) | weighted token reduction (95% CI) | "
+            "speedup (95% CI) |",
+            "| --- | --- | --- | ---: | --- | --- | --- | --- | --- |",
         ]
         for c in comparisons:
             cells = [
                 f"{c[k]['point']} [{c[k]['ci95'][0]}, {c[k]['ci95'][1]}]"
-                for k in ("quality_delta", "token_reduction", "speedup")
+                for k, _ in STATISTICS
             ]
             lines.append(
-                f"| {c['model']} | {c['version']} | {c['candidate']} vs "
+                f"| {c['model']} | {c['slice']} | {c['candidate']} vs "
                 f"{c['baseline']} | {c['pairs']} | " + " | ".join(cells) + " |"
             )
+    if decision:
+        lines += ["", f"Decision ({decision['plan']}): {decision['status']}"]
+        if decision["coverage"]:
+            done, planned = decision["coverage"]
+            lines.append(f"- {done} of {planned} planned runs succeeded")
+        for check in decision["checks"]:
+            lows = ", ".join(f"{o['model']} {o['ci_low']}" for o in check["outcomes"])
+            verdict = "pass" if check["passed"] else "fail"
+            lines.append(
+                f"- {check['name']}: {check['metric']} ({check['scope']}) CI low "
+                f"{lows or 'n/a'} > {check['ci_low_above']}: {verdict}"
+            )
     return "\n".join(lines)
+
+
+def _slice(
+    cases: dict[str, CorpusCase], field: str, value: str
+) -> Callable[[RunRecord], bool]:
+    return lambda r: getattr(cases[r.case_id], field) == value
+
+
+def _coverage(
+    plan: Plan, cases: dict[str, CorpusCase], records: list[RunRecord]
+) -> tuple[int, int]:
+    """(successful planned runs, planned runs); refuses runs the plan never made."""
+    planned = {
+        (m, c, case_id, e)
+        for m in plan.models
+        for c in plan.conditions
+        for case_id in cases
+        for e in range(plan.epochs)
+    }
+    if any(r.key() not in planned for r in records):
+        raise ReportError("the results hold runs that are not in the plan")
+    return sum(r.error is None for r in records), len(planned)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Summarize agent benchmark results.")
     parser.add_argument("results", nargs="*", type=Path, help="results JSONL files")
+    parser.add_argument(
+        "--plan", type=Path, help="analysis plan: its results, judge and decision"
+    )
     parser.add_argument("--inspect-log", action="append", type=Path, default=[])
     parser.add_argument("--cases", type=Path, help="case JSONL (default: bundled)")
     parser.add_argument(
         "--rescore", action="store_true", help="re-score answers offline"
     )
-    parser.add_argument("--baseline", default="full_spec")
-    parser.add_argument("--candidate", default="mcp")
+    parser.add_argument("--judge-model", help="judge whose verdicts score format 2")
+    parser.add_argument(
+        "--judgments",
+        action="append",
+        type=Path,
+        help="judgment files (default: RESULTS.judgments.jsonl)",
+    )
+    parser.add_argument("--baseline", help="default full_spec, or the plan's")
+    parser.add_argument("--candidate", help="default mcp, or the plan's")
     parser.add_argument("--gate-quality-regression", type=float)
     parser.add_argument("--gate-token-reduction", type=float)
     parser.add_argument("--gate-speedup", type=float)
@@ -333,8 +525,17 @@ def main(argv: list[str] | None = None) -> int:
         help="only these epochs (repeatable); compare runs made together",
     )
     args = parser.parse_args(argv)
+    try:
+        return _report(args)
+    except (ReportError, PlanError, CorpusError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
-    records = load_records(args.results)
+
+def _report(args: argparse.Namespace) -> int:
+    loaded: LoadedPlan | None = load_plan(args.plan) if args.plan else None
+    paths: list[Path] = args.results or ([loaded.results_path] if loaded else [])
+    records = load_records(paths)
     if args.inspect_log:
         # Inspect AI needs Python 3.11+; import it only when logs are requested.
         module = importlib.import_module("mqtt_spec_mcp.benchmark.inspect_logs")
@@ -348,38 +549,94 @@ def main(argv: list[str] | None = None) -> int:
         if not records:
             print("no records for the selected epochs", file=sys.stderr)
             return 1
-    try:
+    analysis = loaded.plan.analysis if loaded else None
+    if analysis is not None and (args.baseline or args.candidate):
+        raise ReportError("the plan fixes the comparison; drop --baseline/--candidate")
+    baseline = args.baseline or (analysis.baseline if analysis else "full_spec")
+    candidate = args.candidate or (analysis.candidate if analysis else "mcp")
+    slices: list[tuple[str, Callable[[RunRecord], bool]]] = []
+    decision: dict[str, Any] | None = None
+    if any(r.corpus is not None for r in records):
+        if not all(r.corpus is not None for r in records):
+            raise ReportError("results mix the bundled corpus with a format-2 corpus")
         if args.rescore:
-            cases = {c.id: c for c in load_cases(args.cases)}
-            rescore(records, cases)
-        hashes = check_compatible(records)
-    except ReportError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
+            raise ReportError("format-2 runs are scored from judgments, not --rescore")
+        if loaded is not None:
+            problems = corpus_problems(loaded.plan) + judge_problems(loaded.plan)
+            if any(r.plan != loaded.id for r in records):
+                problems.append(f"some results were not made under {loaded.id}")
+            if problems:
+                raise ReportError("; ".join(problems))
+        judge_model = loaded.plan.judge.model if loaded else args.judge_model
+        if not judge_model:
+            raise ReportError("format-2 runs need --judge-model (or --plan)")
+        cases = corpus_cases(records, loaded)
+        score_judged(
+            records,
+            cases,
+            judge_model,
+            args.judgments or [judgments_path(p) for p in paths],
+        )
+        for field in ("kind", "origin"):
+            for value in sorted({str(getattr(c, field)) for c in cases.values()}):
+                slices.append((f"{field}={value}", _slice(cases, field, value)))
+        if loaded is not None:
+            decision = {
+                "plan": loaded.id,
+                "coverage": _coverage(loaded.plan, cases, records),
+            }
+    elif loaded is not None:
+        raise ReportError("analysis plans apply to format-2 corpora")
+    elif args.rescore:
+        rescore(records, {c.id: c for c in load_cases(args.cases)})
+    hashes = check_compatible(records)
     summary = summarize(records)
     by_version = summarize(records, by_version=True)
-    comparisons = compare(records, args.baseline, args.candidate)
+    comparisons = compare(records, baseline, candidate)
     versions = sorted({r.version for r in records})
     per_version = [
         row
         for version in versions
-        for row in compare(records, args.baseline, args.candidate, version)
+        for row in compare(records, baseline, candidate, version)
     ]
-    print(to_markdown(summary, comparisons + per_version, by_version))
+    per_slice = [
+        row
+        for label, keep in slices
+        for row in compare(records, baseline, candidate, label=label, keep=keep)
+    ]
+    if loaded is not None and decision is not None:
+        done, planned = decision["coverage"]
+        decision.update(decide(loaded.plan, comparisons, done == planned))
+    print(
+        to_markdown(
+            summary, comparisons + per_version + per_slice, by_version, decision
+        )
+    )
+    unverified = sum(
+        1 for r in records if r.score and r.score.get("evidence_unverified")
+    )
+    if unverified:
+        print(f"\njudge evidence not found in the answer for {unverified} run(s)")
     if args.json_output:
         payload = {
             "hashes": hashes,
-            "scorer_version": SCORER_VERSION,
+            "scorer_version": next(
+                (r.scorer_version for r in records if r.score), SCORER_VERSION
+            ),
             "bootstrap": {"samples": BOOTSTRAP_SAMPLES, "seed": BOOTSTRAP_SEED},
             "summary": summary,
             "summary_by_version": by_version,
             "comparisons": comparisons,
             "comparisons_by_version": per_version,
+            "comparisons_by_slice": per_slice,
+            "decision": decision,
         }
         args.json_output.write_text(json.dumps(payload, indent=2) + "\n", "utf-8")
     failures = apply_gates(comparisons, args)
     for failure in failures:
         print(f"GATE FAILED: {failure}", file=sys.stderr)
+    if decision is not None and decision["status"] != "PASS":
+        return 1
     return 1 if failures else 0
 
 

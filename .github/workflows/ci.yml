@@ -39,6 +39,9 @@ jobs:
       - run: uv sync --locked --extra benchmark
       - run: uv run mypy --python-version 3.12 src/mqtt_spec_mcp/benchmark/*.py
       - run: uv run python -m mqtt_spec_mcp.benchmark.cases
+      # Corpus format 2, judge, plans and reports, including runner checks that
+      # need the Copilot SDK (no model is called).
+      - run: uv run pytest tests/test_benchmark_corpus.py
       - run: >-
           uv run mqtt-spec-bench-retrieval
           --min-recall-at-1 0.70 --min-recall-at-5 0.60 --min-hit-rate 0.90

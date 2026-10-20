@@ -333,7 +333,8 @@ Independently authored corpora use corpus format 2, defined by JSON Schemas in
 language with a verbatim quote from the specification, records whether it came from
 the specification or from a public problem report, and belongs to a `dev` or a
 `test` split; a `manifest.json` pins the source documents and the hash of each split
-file.
+file. See [Independent corpora, the AI judge and analysis
+plans](#independent-corpora-the-ai-judge-and-analysis-plans) for how they are run.
 
 ```bash
 # Validate the corpus (schema, grounding, coverage, reference answers)
@@ -359,7 +360,8 @@ uv run mqtt-spec-bench-copilot --model claude-sonnet-5 --sample 20 --versions 3.
 uv run inspect eval mqtt_spec_mcp/mqtt_mcp --model openai/gpt-5
 uv run inspect eval mqtt_spec_mcp/mqtt_reference -T condition=full_spec -T versions=3.1.1
 
-# Paired report (overall and per version) with bootstrap 95% CIs and release gates
+# Paired report (overall and per version) with bootstrap 95% CIs and release gates;
+# intervals resample cases, keeping each case's epochs (and models) together
 uv run mqtt-spec-bench-report benchmarks/runs/copilot.jsonl \
     --gate-quality-regression 0.02 --gate-token-reduction 0.50 --gate-speedup 1.20
 uv run mqtt-spec-bench-report benchmarks/runs/copilot.jsonl --rescore --epoch 1
@@ -392,8 +394,8 @@ specification(s) the question is about:
 Single-version questions are sent labelled with their version (`[MQTT 3.1.1] …`), as
 a user of a multi-version tool would ask them; comparison questions name both.
 
-Scoring is deterministic: `quality = clamp(0.8 × fact recall + 0.2 × citation recall −
-violation rate, 0, 1)`. A run passes only with every fact, every citation group and
+The bundled corpus is scored deterministically: `quality = clamp(0.8 × fact recall +
+0.2 × citation recall − violation rate, 0, 1)`. A run passes only with every fact, every citation group and
 no forbidden claim. Answers are normalized before matching (markdown emphasis
 removed, heading-only lines joined to their paragraph), and a negation only cancels
 a fact within its own clause. Every result records hashes of the shared
@@ -403,6 +405,69 @@ to compare runs whose hashes conflict, but one condition can be re-run after a
 change and compared against stored results for the others. Answer keys are not part
 of the question hash: use `--rescore` to apply corrected keys or a newer scorer to
 stored answers offline.
+
+### Independent corpora, the AI judge and analysis plans
+
+The 200 bundled cases shaped the server, so claims about it are measured on corpora
+written independently in corpus format 2 and kept outside this repository. Each has
+a `dev` split, for diagnosing failures and calibrating the judge, and a sealed
+`test` split, which is run, judged and reported only under a committed analysis
+plan, and only as aggregates.
+
+```bash
+# Pin a frozen corpus (writes benchmarks/corpora/NAME.json); check it again later
+uv run mqtt-spec-bench-corpus register independent ../mqtt-spec-corpus
+uv run mqtt-spec-bench-corpus check independent        # --unseal names test cases
+
+# Dev split: several models in one pass, then the judge, then the report
+uv run mqtt-spec-bench-copilot --corpus independent --conditions mcp grep \
+    --models claude-sonnet-5 <other models> --epochs 2 \
+    --output benchmarks/runs/independent/dev/pass1.jsonl
+uv run mqtt-spec-bench-judge benchmarks/runs/independent/dev/pass1.jsonl \
+    --judge-model <judge>
+uv run mqtt-spec-bench-report benchmarks/runs/independent/dev/pass1.jsonl \
+    --judge-model <judge> --baseline grep
+
+# Test split: write a plan pinned to the current corpus, code and judge; review and
+# commit it; then run, judge and report under it
+uv run mqtt-spec-bench-plan init release-1 --corpus independent \
+    --models claude-sonnet-5 <other models> --judge-model <judge>
+uv run mqtt-spec-bench-plan check benchmarks/plans/release-1.toml
+uv run mqtt-spec-bench-copilot --plan benchmarks/plans/release-1.toml --concurrency 6
+uv run mqtt-spec-bench-judge --plan benchmarks/plans/release-1.toml
+uv run mqtt-spec-bench-report --plan benchmarks/plans/release-1.toml
+```
+
+- **Judge.** Each answer is graded blind. The judge model sees the question, the
+  answer key's facts (each with its source quote) and wrong claims, and the answer;
+  it does not see the condition, the model or the tool calls. For every fact it
+  returns present, absent or contradicted, and for every wrong claim made or not
+  made, quoting the passage of the answer behind each positive verdict. A quote that
+  is not in the answer is sent back, up to three attempts. A wrong claim that the
+  answer asserts and later retracts counts as made. Verdicts are cached by judge,
+  prompt, case content and answer in `RESULTS.judgments.jsonl`, so reports never
+  call a model.
+- **Score.** Essential facts weigh 2 and supporting facts 1 in fact recall.
+  Citation is the share of facts whose section (or a subsection of it) the answer
+  cites. Errors are wrong claims made plus facts contradicted. `quality = clamp(0.8 ×
+  fact recall + 0.2 × citation − 0.5 × errors, 0, 1)`. A run passes when every
+  essential fact is present and cited and there are no errors.
+- **Plans.** A plan (TOML in `benchmarks/plans/`) fixes:
+  - the corpus (by manifest hash) and the split;
+  - the models, conditions, epochs and seed;
+  - hashes of what each condition gives the model;
+  - the judge model, prompt and scoring version;
+  - the decision rule: checks on the lower bound of a 95% CI, pooled over models
+    or for each model.
+
+  The runner refuses a test plan that is uncommitted or no longer matches the code,
+  and it records the plan's id on every run. The report then prints PASS or FAIL,
+  or INCOMPLETE while planned runs are missing or failed.
+- **Report.** Results from several models get a pooled row as well as one row per
+  model. Comparisons include the pass-rate difference and a token count weighted by
+  each model's own prices, which are recorded on every run. They are broken down by
+  version, by case kind, and by whether a case came from the specification or from
+  a real-world problem report.
 
 ### Latest results
 

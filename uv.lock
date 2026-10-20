@@ -1964,37 +1964,47 @@ dependencies = [
 benchmark = [
     { name = "github-copilot-sdk", marker = "python_full_version >= '3.11'" },
     { name = "inspect-ai", marker = "python_full_version >= '3.11'" },
+    { name = "jsonschema" },
     { name = "tiktoken" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "beautifulsoup4" },
+    { name = "jsonschema" },
     { name = "lxml" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "tomli" },
     { name = "types-beautifulsoup4" },
+    { name = "types-jsonschema" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "github-copilot-sdk", marker = "python_full_version >= '3.11' and extra == 'benchmark'", specifier = "==1.0.22" },
     { name = "inspect-ai", marker = "python_full_version >= '3.11' and extra == 'benchmark'", specifier = "==0.3.281" },
+    { name = "jsonschema", marker = "extra == 'benchmark'", specifier = ">=4.18" },
     { name = "mcp", specifier = ">=2.3,<3" },
     { name = "pydantic", specifier = ">=2.7,<3" },
     { name = "tiktoken", marker = "extra == 'benchmark'", specifier = "==0.14.0" },
+    { name = "tomli", marker = "python_full_version < '3.11' and extra == 'benchmark'", specifier = ">=2.0" },
 ]
 provides-extras = ["benchmark"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "beautifulsoup4", specifier = ">=4.12,<5" },
+    { name = "jsonschema", specifier = ">=4.18" },
     { name = "lxml", specifier = ">=5,<7" },
     { name = "mypy", specifier = ">=1.10" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.6" },
+    { name = "tomli", specifier = ">=2.0" },
     { name = "types-beautifulsoup4" },
+    { name = "types-jsonschema", specifier = ">=4.26.0.20261006" },
 ]
 
 [[package]]
@@ -3798,6 +3808,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b8/5a/0c708d1b0d35ad48b6a223c77c4a882fd016b40c25becb082a92e02a9c00/types_html5lib-1.1.11.20260518.tar.gz", hash = "sha256:4f33c087cb1119d65c4c80eca4323c2b501f9eaf8af9616b8b732ed4d8eae8fa", size = 18420, upload-time = "2026-05-18T06:07:23.662Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4d/d0/b088b9f11eb69637d6826843f06caaff60247156735a25512922d3dc2c13/types_html5lib-1.1.11.20260518-py3-none-any.whl", hash = "sha256:9baa7912224ebb37027c5ccb7e3768e43ea47b1dfdd977e7ddc4b0a4a550584d", size = 24339, upload-time = "2026-05-18T06:07:22.876Z" },
+]
+
+[[package]]
+name = "types-jsonschema"
+version = "4.26.0.20261006"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "referencing" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/29/d2/1f742605f5a6d39f993134885b8de41c98af606871d3ebddaf3e776bd1eb/types_jsonschema-4.26.0.20261006.tar.gz", hash = "sha256:3eb7db61b6819d40addfdaac7173e749071a7d4a9a4394f0c844598ec84b2500", size = 16843, upload-time = "2026-10-06T08:16:07.318Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/a0/4f2e3c0dc3d5cad958006f2e0307065cc8fe4fbf0393ff0b69d55ee9bbe5/types_jsonschema-4.26.0.20261006-py3-none-any.whl", hash = "sha256:29301f4e65e3928540cdf5e23ad716e38bb0c0b416a48dada213edd3d70206ec", size = 16113, upload-time = "2026-10-06T08:16:06.355Z" },
 ]
 
 [[package]]

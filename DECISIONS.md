@@ -408,6 +408,78 @@ appear in the body.
   answers no key check had seen; across three checks, keys fitted to earlier
   answers raised the scores of later, unseen answers about equally for `mcp` and
   `grep`.
+- Corpus format 2 (independent corpora): each line is validated against
+  `benchmarks/schema/case-v2.schema.json` (JSON Schema 2020-12, with the
+  `jsonschema` package), then parsed into strict models. Checks the schema cannot
+  express are made on load: unique case, fact and claim ids, and a `split` field
+  matching its file. A corpus is registered in `benchmarks/corpora/NAME.json`,
+  which pins the SHA-256 of its manifest; the manifest pins each split file and its
+  case count. Any edit after registration fails the load, so corrections are a new
+  `corpus_version` and a deliberate re-registration. `check` also warns when a
+  section is not in this server's index, when a quote's words are not found in the
+  indexed text, when a reference answer is over its word limit, or when the corpus
+  was written from another source URL. Source hashes are not compared, because the
+  server pins the hash of the canonicalized HTML, not of the download.
+- The `test` split is sealed. The runner, judge and report open it only under an
+  analysis plan. Schema errors in test cases are shown without the offending
+  values, `check` counts test warnings without naming cases unless `--unseal` is
+  given, and runner and judge progress number test cases instead of naming them.
+- The AI judge sees the question, each fact's statement, version and source quote,
+  and each wrong claim with its reason. It does not see whether a fact is
+  essential, which sections state it, or the reference answer, so it cannot be
+  more lenient on facts it knows count less. It returns per-fact and per-claim
+  verdicts rather than a score, so the formula can change without re-judging.
+  Every positive verdict must quote the answer. The quote is checked against the
+  answer word by word, ignoring case, punctuation and markdown, with ` ... `
+  between passages. Replies with bad JSON, missing ids or quotes that aren't in the
+  answer are sent back in the same session with the problem stated (three
+  attempts). Evidence still not found after that is kept and counted in the
+  report. The live smoke test led to a stricter rubric: an answer asserted
+  "RETAIN 0 deletes the retained message" and then corrected itself, and the judge
+  had marked the claim not made. Now a claim asserted anywhere counts as made even
+  if later retracted, and a fact counts as contradicted if anything in the answer
+  is incompatible with it, because a reader cannot tell which half to believe.
+  Judgments are keyed by judge model, a hash of the prompt templates, the judged
+  content of the case and the answer.
+- Judged scoring (version 2.0) weighs essential facts 2 and supporting facts 1. Each
+  wrong claim made or fact contradicted costs a flat 0.5, unlike the bundled
+  corpus's violation rate, which divides by the number of forbidden claims. A run
+  passes when every essential fact is present and cited and there are no errors.
+- Analysis plans pin hashes rather than a git commit: the shared-instruction hash,
+  each condition's prompt and reference hashes, the judge prompt hash, the scoring
+  version and the corpus manifest. The runner and judge refuse a plan that no
+  longer matches. A test plan must also be committed and unchanged:
+  `git ls-tree HEAD` must list it, so staging it is not enough, and
+  `git status --porcelain` must be empty for it. Git history then shows the plan
+  predates its results. Runs record the plan's id (name and file hash), so a plan
+  edited after its runs no longer matches them.
+  - The runner refuses to add runs to a results file that holds runs of another
+    corpus, corpus version, split or plan, so a resumed file can always be judged
+    and reported as a whole.
+  - With a plan, the report takes the comparison from the plan and refuses
+    `--baseline`/`--candidate`.
+  - The report does not re-check the run hashes against the current code, which
+    can move on after a run.
+  - It does check the judge prompt, scoring version and corpus, because judgment
+    keys and scores depend on them.
+
+  The decision is INCOMPLETE until every planned (model, condition, case, epoch)
+  run has succeeded.
+- Bootstrap intervals resample cases, not pairs. A case's pairs from two epochs or
+  several models are correlated, so resampling them independently understates the
+  uncertainty. With one pair per case the result is unchanged. With several models,
+  a pooled row combines their pairs; pooled token reduction is a ratio of sums.
+- Weighted tokens use the model's own prices. The SDK's model list gives token
+  prices, and the ratios differ:
+  - cache reads cost 0.05 to 0.25 of uncached input;
+  - output costs 3 times input (Grok 4.x) up to 8 times (GPT-5.3-Codex);
+  - some models have no separate cache-write price, so writes are billed as input.
+
+  The runner records each model's prices on its runs. Runs without prices (all
+  runs before this change) use 0.1, 1.25 and 5 for cache reads, cache writes and
+  output (Claude Sonnet 5's ratios).
+- Several models run in one invocation: every model answers a case before the next
+  case starts, so conditions within a model still run side by side.
 - Copilot SDK runner: `CopilotClient(mode="empty")`, built-in tools disabled via
   `available_tools` (custom tools only, or none), system message in `replace`
   mode, infinite sessions off, one fresh session per run, `--concurrency` sessions

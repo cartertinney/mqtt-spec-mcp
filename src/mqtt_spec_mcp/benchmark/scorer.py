@@ -202,7 +202,7 @@ def cited_sections(answer: str) -> set[str]:
     return cited
 
 
-def _group_cited(group: list[str], cited: set[str]) -> bool:
+def group_cited(group: list[str], cited: set[str]) -> bool:
     # Entries may be version-qualified ("3.1.1:3.1.2.4"); answers cite numbers.
     sections = [ref.rsplit(":", 1)[-1] for ref in group]
     return any(c == s or c.startswith(s + ".") for s in sections for c in cited)
@@ -224,7 +224,7 @@ def score_answer(case: Case, answer: str) -> Score:
     groups_missing = [
         i
         for i, group in enumerate(case.citations)
-        if not _group_cited(list(group), cited)
+        if not group_cited(list(group), cited)
     ]
     violations = [
         claim.id for claim in case.forbidden if claims(answer, list(claim.any))

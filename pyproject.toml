@@ -32,6 +32,8 @@ benchmark = [
     "inspect-ai==0.3.281; python_version >= '3.11'",
     "github-copilot-sdk==1.0.22; python_version >= '3.11'",
     "tiktoken==0.14.0",
+    "jsonschema>=4.18",
+    "tomli>=2.0 ; python_full_version < '3.11'",
 ]
 
 [project.scripts]
@@ -40,6 +42,9 @@ mqtt-spec-bench-retrieval = "mqtt_spec_mcp.benchmark.retrieval:main"
 mqtt-spec-bench-micro = "mqtt_spec_mcp.benchmark.micro:main"
 mqtt-spec-bench-copilot = "mqtt_spec_mcp.benchmark.copilot_runner:main"
 mqtt-spec-bench-report = "mqtt_spec_mcp.benchmark.report:main"
+mqtt-spec-bench-judge = "mqtt_spec_mcp.benchmark.copilot_judge:main"
+mqtt-spec-bench-corpus = "mqtt_spec_mcp.benchmark.corpus:main"
+mqtt-spec-bench-plan = "mqtt_spec_mcp.benchmark.plan:main"
 
 [project.entry-points.inspect_ai]
 mqtt_spec_mcp = "mqtt_spec_mcp.benchmark.inspect_tasks"
@@ -47,11 +52,14 @@ mqtt_spec_mcp = "mqtt_spec_mcp.benchmark.inspect_tasks"
 [dependency-groups]
 dev = [
     "beautifulsoup4>=4.12,<5",
+    "jsonschema>=4.18",
     "lxml>=5,<7",
     "mypy>=1.10",
     "pytest>=8",
     "ruff>=0.6",
+    "tomli>=2.0",
     "types-beautifulsoup4",
+    "types-jsonschema>=4.26.0.20261006",
 ]
 
 [build-system]
@@ -84,7 +92,7 @@ mypy_path = "src"
 explicit_package_bases = true
 # Runner modules need the benchmark extra (Python 3.11+); CI checks them separately
 # with: mypy --python-version 3.12 src/mqtt_spec_mcp/benchmark/*.py
-exclude = ["src/mqtt_spec_mcp/benchmark/(copilot_runner|inspect_tasks|inspect_logs)\\.py$"]
+exclude = ["src/mqtt_spec_mcp/benchmark/(copilot_runner|copilot_judge|inspect_tasks|inspect_logs)\\.py$"]
 
 
 [tool.pytest.ini_options]

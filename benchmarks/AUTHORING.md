@@ -8,6 +8,12 @@ The corpus has three files under `src/mqtt_spec_mcp/benchmark/data/`:
   8 synthesis, 7 edge);
 - `cases-compare.jsonl`: 20 cases about how the two versions differ or agree.
 
+This log covers that bundled corpus, which was used to develop the server.
+Independent corpora (corpus format 2, schemas in [schema/](schema/)) are written
+outside this repository, from a brief that bars their authors from opening this
+server, its benchmark or any other MQTT question-answering tool; see the README's
+section on independent corpora.
+
 ## Who and when
 
 ### MQTT 5.0 set

@@ -159,6 +159,11 @@ class Case(_Strict):
             return ("3.1.1", "5.0")
         return (self.version,)
 
+    @property
+    def stratum(self) -> str:
+        """The group a stratified sample spreads across (with the version)."""
+        return self.category
+
 
 def split_ref(ref: str, default: VersionId | None) -> tuple[VersionId | None, str]:
     """Split "3.1.1:3.1.2.4" into its version and section ("3.1.2.4" -> default)."""

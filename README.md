@@ -480,6 +480,32 @@ uv run mqtt-spec-bench-report --plan benchmarks/plans/release-1.toml
 
 ### Latest results
 
+**Independent corpus, release 1** (2026-10-20,
+[full report](benchmarks/results/2026-10-20-independent-release-1.md)). The 165
+sealed test questions of the independently written corpus were answered by five
+models through the Copilot SDK (claude-sonnet-5.5, gpt-6.1-sol, claude-haiku-5.5,
+gpt-6-luna, grok-4.7). Each model used this server (commit 4bd4586) and the grep
+baseline side by side, in two epochs: 3,300 runs. Answers were judged blind by a
+claude-sonnet-5 + gpt-5.6-sol panel under the committed plan
+[release-1](benchmarks/plans/release-1.toml). Pooled over models:
+
+| condition | quality | pass rate | fact recall | tokens/answer | price-weighted tokens/answer | latency (mean) | model calls |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `mcp` | 0.947 | 80.5% | 0.959 | 10,804 | 11,051 | 11.5 s | 2.42 |
+| `grep` | 0.949 | 76.2% | 0.960 | 17,802 | 13,575 | 15.1 s | 4.18 |
+
+The plan required `mcp` to beat `grep` on quality and on tokens, and its decision
+was **FAIL**: quality tied (−0.2 points, 95% CI −1.1 to +0.6) while tokens fell 39%
+(CI 36% to 42%).
+- `mcp` also passed 4.3 points more often (CI +2.0 to +6.7), was 1.31× faster, and
+  used 19% fewer tokens once each model's prices are applied.
+- Both found the same facts. `mcp` cited them better, but made twice as many errors
+  (contradicted facts or wrong claims: 0.030 per answer against 0.015), and that
+  cancelled the citation gain.
+- With claude-sonnet-5.5, `mcp` cost 23% more once priced: its evidence is written
+  to the prompt cache and barely reused.
+
+**Earlier results on the bundled development corpus.**
 [benchmarks/results/2026-10-19-evidence-pack-claude-sonnet-5.md](benchmarks/results/2026-10-19-evidence-pack-claude-sonnet-5.md)
 has the full report. Claude Sonnet 5 through the Copilot SDK, all 200 cases, this
 server (commit 6448cb8, with multi-part search) and the grep baseline run side by

@@ -325,7 +325,15 @@ The case corpus has 200 questions in three files under
 
 The single-version sets each cover all seven chapters and every control packet of
 their version. See [benchmarks/AUTHORING.md](benchmarks/AUTHORING.md) for how the
-cases were written and reviewed.
+cases were written and reviewed. These cases were used to develop the server, so they
+now serve as a development and regression set.
+
+Independently authored corpora use corpus format 2, defined by JSON Schemas in
+[benchmarks/schema/](benchmarks/schema/): each case states its facts in plain
+language with a verbatim quote from the specification, records whether it came from
+the specification or from a public problem report, and belongs to a `dev` or a
+`test` split; a `manifest.json` pins the source documents and the hash of each split
+file.
 
 ```bash
 # Validate the corpus (schema, grounding, coverage, reference answers)

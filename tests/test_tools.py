@@ -17,12 +17,15 @@ from tests.conftest import Call, JsonCall, parse_search
 
 # Search ----------------------------------------------------------------------------
 
+# Rendered text outside the excerpt budgets: scope line, excerpt notes, next step.
+FIXED_TEXT = 1000
+
 
 def test_search_will_delay_interval(ok: JsonCall) -> None:
     result = ok("mqtt_spec_search", version="5.0", query="Will Delay Interval")
     assert result["results"][0]["section"] == "3.1.3.2.2"
     assert result["best_section"] == "3.1.3.2.2"
-    assert "not search MQTT 5.0 again" in result["next_step"]
+    assert "again only for a part of the question" in result["next_step"]
 
 
 def test_search_label_normative_only(ok: JsonCall) -> None:
@@ -72,7 +75,7 @@ def test_search_topic_alias_scoped(call: Call) -> None:
     result = parse_search(outcome.text)
     assert result["results"]
     assert all(r["section"].startswith("3.3") for r in result["results"])
-    assert len(outcome.text) < PACK_CHARS + 700
+    assert len(outcome.text) < PACK_CHARS + FIXED_TEXT
 
 
 @pytest.mark.parametrize("version", ["3.1.1", "5.0"])
@@ -83,7 +86,28 @@ def test_search_topic_alias_scoped(call: Call) -> None:
 def test_search_default_size_bound(call: Call, version: str, query: str) -> None:
     outcome = call("mqtt_spec_search", version=version, query=query)
     assert not outcome.is_error
-    assert len(outcome.text) < PACK_CHARS + RELATED_CHARS + 700
+    assert len(outcome.text) < PACK_CHARS + RELATED_CHARS + FIXED_TEXT
+
+
+@pytest.mark.parametrize(
+    ("version", "query"),
+    [("5.0", "SUBSCRIBE actions retained messages"), ("3.1.1", "keep alive")],
+)
+def test_search_marks_partial_excerpts(
+    ok: JsonCall, engines: dict[str, SpecEngine], version: str, query: str
+) -> None:
+    from mqtt_spec_mcp.search import PARTIAL_SHOWN
+
+    results = ok("mqtt_spec_search", version=version, query=query)["results"]
+    assert any(r["partial"] for r in results)
+    for r in results:
+        body = engines[version].sections[r["section"]].body
+        if r["partial"]:
+            shown, total = r["partial"]
+            assert total == len(body)
+            assert shown == len(r["snippet"]) < PARTIAL_SHOWN * total
+        else:
+            assert len(r["snippet"]) >= PARTIAL_SHOWN * len(body)
 
 
 def test_search_section_id_query(ok: JsonCall) -> None:

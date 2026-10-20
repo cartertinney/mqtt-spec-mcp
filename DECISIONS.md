@@ -224,12 +224,32 @@ appear in the body.
   quality difference is significant, and the gain was not concentrated in the runs
   that split. On lookup and normative cases it split 10 of 66 searches and scored
   as v8 did.
-- The pack ends with the next step: state each rule in the excerpts that bears on
-  the question, with its MUST/SHOULD/MAY and conditions, and cite its section; if
-  a needed rule is missing, get one listed section; do not search this version
-  again for this question (to compare versions, search the other one once). The
-  version-specific wording came after 11 of 60 comparison runs consulted only one
-  version (quality 0.80 to 0.88, against 0.92 to 0.97 with both). With no match
+- The pack ends with the next step: state each rule that bears on the question,
+  with its MUST/SHOULD/MAY and conditions, and cite its section. Sections marked as
+  excerpts hold more than is shown, often the exceptions: before saying MQTT
+  allows, forbids, leaves open or does not mention something, or that a rule has
+  no exception, get the section that would say it. Search this version again only
+  for a part of the question the results don't cover (to compare versions, search
+  the other one once). The version-specific wording came after 11 of 60
+  comparison runs consulted only one version (quality 0.80 to 0.88, against 0.92
+  to 0.97 with both).
+- Excerpt notes (2026-10-20). A heading ends with `(excerpt: N of M characters)`
+  when its entry shows less than 95% of the section. The next step and the server
+  instructions used to say "answer from these excerpts" and "do not search this
+  version again".
+  - On the independent corpus's sealed test split, `mcp` made twice as many errors
+    as `grep` (0.030 against 0.015 per answer), which cancelled its better
+    citations.
+  - On the dev split, the 21 `mcp` answers with an error were replayed to recover
+    the evidence the model saw. In 8 the governing sentence was in a section the
+    pack had excerpted but cut, in 5 the section was never retrieved, and in 8 the
+    model saw the rule and still contradicted it (`grep`: 8 seen, 7 never read).
+  - 24% of `mcp` answers hedged ("the excerpts do not explicitly say..."), against
+    14% of `grep` answers.
+  - Appending each excerpted section's omitted requirement sentences instead
+    would have grown packs by 28% to 38% and shown only 4 of the 13 unseen rules
+    behind errors, because many governing sentences carry no MUST or label. So
+    the fix tells the agent what it has not seen instead. With no match
   it says nothing matched in this version, that this is not proof of absence, and
   that it says nothing about any other version.
 - The tools advertise only the parameters agents used in 803 benchmark runs

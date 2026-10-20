@@ -144,8 +144,10 @@ those sections are taken first, each with a neighbouring sentence for context; a
 sentence from a list also brings the list's lead-in, and the whole list when it is
 at most 1,200 characters. Normative sentences (MUST, SHOULD, MAY or a requirement label) count double, and the
 best-ranked section's remaining sentences fill spare room before weak matches
-elsewhere. `...` marks every cut, and a sentence repeated word for word in a later
-section is shown once. Up to 700 more characters follow as related requirements:
+elsewhere. `...` marks every cut, and a heading ends with `(excerpt: 1,198 of 6,755
+characters)` when its entry shows less than 95% of the section, so an agent knows
+the section holds more, often its exceptions. A sentence repeated word for word in
+a later section is shown once. Up to 700 more characters follow as related requirements:
 labelled requirement sentences (`[MQTT-...]`) from sections ranked below those eight
 that share at least two of the query's terms, most informative first, each under
 its own section heading. They catch a rule stated in a short section, such as
@@ -169,13 +171,13 @@ MQTT 5.0 only. Never apply its section numbers, labels, fields or codes to MQTT 
 34 (0x22) Byte, Identifier of the Topic Alias Maximum.
 Followed by the Two Byte Integer representing the Topic Alias Maximum value. ...
 
-## 3.1.2.11.5 Topic Alias Maximum
+## 3.1.2.11.5 Topic Alias Maximum (excerpt: 549 of 829 characters)
 ...This value indicates the highest value that the Client will accept as a Topic Alias sent by the Server. ...
 
-## 3.3.2.3.4 Topic Alias
+## 3.3.2.3.4 Topic Alias (excerpt: 2,031 of 2,521 characters)
 35 (0x23) Byte, Identifier of the Topic Alias. ...
 
-## 3.3.4 PUBLISH Actions
+## 3.3.4 PUBLISH Actions (excerpt: 1,198 of 6,755 characters)
 ...If the PUBLISH packet contains a Topic Alias, the receiver processes it as follows:
 - 1) A Topic Alias value of 0 or greater than the Maximum Topic Alias is a Protocol Error, the receiver uses DISCONNECT with Reason Code of 0x94 (Topic Alias invalid) as described in section 4.13.
 - 2) If the receiver has already established a mapping for the Topic Alias, then
@@ -183,7 +185,7 @@ Followed by the Two Byte Integer representing the Topic Alias Maximum value. ...
 
 [five more sections]
 
-Answer from these excerpts: state each rule here that bears on the question, with its MUST/SHOULD/MAY and conditions, and cite its section. If a needed rule is missing, get one listed section with mqtt_spec_get (version='5.0'). Do not search MQTT 5.0 again for this question (to compare versions, search MQTT 3.1.1 once).
+State each rule here that bears on the question, with its MUST/SHOULD/MAY and conditions, and cite its section. Sections marked (excerpt: ...) hold more than is shown, often the exceptions: before saying MQTT allows, forbids, leaves open or does not mention something, or that a rule has no exception, get the section that would say it with mqtt_spec_get (version='5.0'). Search MQTT 5.0 again only for a part of the question these sections do not cover (to compare versions, search MQTT 3.1.1 once).
 ```
 
 ### `mqtt_spec_get`
@@ -269,10 +271,13 @@ The server sends these instructions to clients. In short:
 1. Consult the tools before answering. Use `mqtt_spec_lookup` for one exact,
    recognized entity; otherwise search once with the question's key terms, one
    `;`-separated group per part of the question.
-2. Answer from the excerpts: state each rule that bears on the question with its
+2. Answer from the results: state each rule that bears on the question with its
    MUST/SHOULD/MAY and conditions, and cite its section.
-3. If a needed rule is missing, get one listed section with `mqtt_spec_get`, and
-   follow cursors only if needed. Use `mqtt_spec_outline` only to browse.
+3. A result marked `(excerpt: ...)` shows part of its section. Before saying MQTT
+   allows, forbids, leaves open or does not mention something, or that a rule has
+   no exception, get the section that would say it with `mqtt_spec_get` (follow its
+   cursor if needed). Search again only for a part of the question the results do
+   not cover. Use `mqtt_spec_outline` only to browse.
 
 ## Index provenance and regeneration
 

@@ -41,10 +41,11 @@ carry section numbers, labels or codes between versions (3.1.1 has Clean Session
 return codes; 5.0 has Clean Start, Session Expiry, properties and reason codes). To \
 compare, query each version and cite the version with each claim.
 - Consult the tools before answering: search once with the question's key terms, \
-one ';'-separated group per part of the question, and answer from the excerpts, \
+one ';'-separated group per part of the question, and answer from the results, \
 citing their sections; use lookup for one exact packet, property, code, label or \
-term. Get one listed section only if a rule you need is missing. Never invent \
-identifiers.
+term. Results marked (excerpt: ...) show part of a section: before saying MQTT \
+allows, forbids, leaves open or does not mention something, or that a rule has no \
+exception, get the section that would say it. Never invent identifiers.
 - Keep MUST/SHOULD/MAY and every condition and exception.
 """
 

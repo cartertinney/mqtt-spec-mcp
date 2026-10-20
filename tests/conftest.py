@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -31,6 +32,9 @@ def call(service: MqttSpecService) -> Call:
     return _call
 
 
+_EXCERPT_NOTE = re.compile(r" \(excerpt: ([\d,]+) of ([\d,]+) characters\)$")
+
+
 def parse_search(text: str) -> dict[str, Any]:
     """Read a Markdown evidence pack back into its parts (scope, source, sections
     with their excerpts as ``snippet``, best_section, next_step)."""
@@ -44,7 +48,14 @@ def parse_search(text: str) -> dict[str, Any]:
         if position == len(chunks) - 1:
             excerpt, _, next_step = excerpt.rpartition("\n\n")
         section, _, title = heading.partition(" ")
-        results.append({"section": section, "title": title, "snippet": excerpt})
+        marker = _EXCERPT_NOTE.search(title)
+        partial = None
+        if marker:
+            title = title[: marker.start()]
+            partial = (int(marker[1].replace(",", "")), int(marker[2].replace(",", "")))
+        results.append(
+            {"section": section, "title": title, "snippet": excerpt, "partial": partial}
+        )
     return {
         "version": "5.0" if "/v5.0/" in source else "3.1.1",
         "scope": scope,

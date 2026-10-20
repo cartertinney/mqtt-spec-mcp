@@ -83,6 +83,9 @@ LIST_BLOCK_CHARS = 1200
 RELATED_SECTIONS = 40
 RELATED_CHARS = 700
 RELATED_MIN_TERMS = 2
+# An entry showing less than this share of its section's text is marked as an
+# excerpt, with both sizes, so a model knows the section holds more than it saw.
+PARTIAL_SHOWN = 0.95
 LABEL_SECTIONS = 3
 LABEL_FIRST_CHARS = 1600
 LABEL_OTHER_CHARS = 400
@@ -858,11 +861,14 @@ def _result(
     best = sections[0]["section"] if sections else None
     if sections:
         next_step = (
-            "Answer from these excerpts: state each rule here that bears on the "
-            "question, with its MUST/SHOULD/MAY and conditions, and cite its section. "
-            "If a needed rule is missing, get one listed section with mqtt_spec_get "
-            f"(version='{v}'). Do not search MQTT {v} again for this question (to "
-            f"compare versions, search MQTT {OTHER_VERSION[v]} once)."
+            "State each rule here that bears on the question, with its "
+            "MUST/SHOULD/MAY and conditions, and cite its section. Sections marked "
+            "(excerpt: ...) hold more than is shown, often the exceptions: before "
+            "saying MQTT allows, forbids, leaves open or does not mention something, "
+            "or that a rule has no exception, get the section that would say it with "
+            f"mqtt_spec_get (version='{v}'). Search MQTT {v} again only for a part "
+            "of the question these sections do not cover (to compare versions, "
+            f"search MQTT {OTHER_VERSION[v]} once)."
         )
     else:
         next_step = (
@@ -886,14 +892,30 @@ def _result(
 
 
 def _entry(info: SectionInfo, excerpt: str) -> dict[str, Any]:
-    return {"section": info.id, "title": info.title, "excerpt": excerpt}
+    return {
+        "section": info.id,
+        "title": info.title,
+        "excerpt": excerpt,
+        "section_chars": len(info.body),
+    }
+
+
+def excerpt_note(entry: dict[str, Any]) -> str:
+    """`` (excerpt: 1,200 of 7,500 characters)`` for an entry showing part of its
+    section, else ``""``."""
+    shown, total = len(entry["excerpt"]), entry["section_chars"]
+    if shown >= PARTIAL_SHOWN * total:
+        return ""
+    return f" (excerpt: {shown:,} of {total:,} characters)"
 
 
 def render_search(result: dict[str, Any]) -> str:
-    """The evidence pack as Markdown: scope and source, sections, next step."""
+    """The evidence pack as Markdown: scope and source, sections (each marked when
+    it shows only part of its section), next step."""
     lines = [f"{result['scope']} Source: {result['source']}"]
     for entry in result["sections"]:
-        lines += ["", f"## {entry['section']} {entry['title']}", entry["excerpt"]]
+        heading = f"## {entry['section']} {entry['title']}{excerpt_note(entry)}"
+        lines += ["", heading, entry["excerpt"]]
     lines += ["", result["next_step"]]
     return "\n".join(lines)
 

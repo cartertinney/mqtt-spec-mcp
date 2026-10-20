@@ -538,6 +538,12 @@ appear in the body.
   output (Claude Sonnet 5's ratios).
 - Several models run in one invocation: every model answers a case before the next
   case starts, so conditions within a model still run side by side.
+- Timing from agent runs is directional only. Latency is dominated by the model
+  service (load, throttling: one dev pass ran at 13 runs a minute for its first
+  minutes and 67 afterwards) and the local machine, not by the server; in-process
+  tool calls take milliseconds. Interleaving conditions evens out drift between
+  them, but no plan gates on latency or speedup. Model calls per answer stand in
+  for the condition-specific cost.
 - Copilot SDK runner: `CopilotClient(mode="empty")`, built-in tools disabled via
   `available_tools` (custom tools only, or none), system message in `replace`
   mode, infinite sessions off, one fresh session per run, `--concurrency` sessions

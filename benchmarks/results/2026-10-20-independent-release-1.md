@@ -16,7 +16,7 @@ On the 165 sealed test questions, `mcp` answered as well as `grep`, not better:
 - quality −0.2 points (CI −1.1 to +0.6);
 - 39% fewer tokens (CI 36% to 42%);
 - 19% fewer price-weighted tokens;
-- 1.31× faster;
+- 1.31× faster in wall-clock time (directional only; see Caveats);
 - passed 4.3 points more often (CI +2.0 to +6.7).
 
 Both conditions found the same facts (fact recall 0.959 and 0.960). `mcp` cited them
@@ -228,6 +228,11 @@ request per call; `grep` averaged 4.2 calls per answer, and `mcp` 2.4.
 - **Prices** are the SDK's listed token prices on 2026-10-20.
 - **One harness.** The results are from the Copilot SDK harness and its prompts; other
   agent harnesses may use the tools differently.
+- **Timing is directional only.** The runs share an uncontrolled environment: the
+  Copilot service's load and throttling, the network and a developer machine. The
+  latency and speedup columns reflect that environment as much as the conditions;
+  interleaving the conditions only evens out the drift between them. Model calls
+  per answer (2.4 against 4.2) are the condition-specific part.
 
 ## Reproduce
 

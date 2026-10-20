@@ -373,6 +373,12 @@ uv run mqtt-spec-bench-report benchmarks/runs/copilot.jsonl --rescore --epoch 1
 uv run mqtt-spec-bench-report --inspect-log logs/<file>.eval --rescore
 ```
 
+Latency and speedup are directional only. The agent runs share an uncontrolled
+environment: the model service's load and throttling, the network and this
+machine. Conditions run interleaved, so both see the same conditions on average,
+but the wall-clock numbers are not measurements of the server. Plans never gate on
+them, and `--gate-speedup` is meant for controlled environments.
+
 `--epoch` restricts the report to runs from the given epoch(s). Compare conditions
 only within runs made together: the same model can answer measurably differently a
 few hours later (see the results below).
@@ -497,14 +503,18 @@ claude-sonnet-5 + gpt-5.6-sol panel under the committed plan
 
 | condition | quality | pass rate | fact recall | tokens/answer | price-weighted tokens/answer | latency (mean) | model calls |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `mcp` | 0.947 | 80.5% | 0.959 | 10,804 | 11,051 | 11.5 s | 2.42 |
-| `grep` | 0.949 | 76.2% | 0.960 | 17,802 | 13,575 | 15.1 s | 4.18 |
+| `mcp` | 0.947 | 80.5% | 0.959 | 10,804 | 11,051 | 11.5 s* | 2.42 |
+| `grep` | 0.949 | 76.2% | 0.960 | 17,802 | 13,575 | 15.1 s* | 4.18 |
+
+\* Latency is directional only (uncontrolled environment; see above).
 
 The plan required `mcp` to beat `grep` on quality and on tokens, and its decision
 was **FAIL**: quality tied (−0.2 points, 95% CI −1.1 to +0.6) while tokens fell 39%
 (CI 36% to 42%).
-- `mcp` also passed 4.3 points more often (CI +2.0 to +6.7), was 1.31× faster, and
-  used 19% fewer tokens once each model's prices are applied.
+- `mcp` also passed 4.3 points more often (CI +2.0 to +6.7) and used 19% fewer
+  tokens once each model's prices are applied. It needed fewer model calls (2.4
+  against 4.2), so its answers also tended to arrive sooner, which is directional
+  only.
 - Both found the same facts. `mcp` cited them better, but made twice as many errors
   (contradicted facts or wrong claims: 0.030 per answer against 0.015), and that
   cancelled the citation gain.
@@ -527,7 +537,7 @@ averaged over its runs:
 
 Against a plain grep tool over the same text the model was at least as accurate
 (+0.8 points, 95% CI -0.4 to +2.0), used 15% fewer tokens (CI 7.4% to 22.1%; 20%
-on the hard cases) and was 18% faster. Once cached tokens are priced (cache reads
+on the hard cases) and was 18% faster (directional). Once cached tokens are priced (cache reads
 0.1, cache writes 1.25, output 5) the two cost about the same. It led clearly on
 questions comparing the two versions (+5.5 points, CI +1.1 to +10.2). The later
 rewrite of everyday spellings (`keepalive`, `LWT`, `broker`, ...) was measured on

@@ -54,6 +54,16 @@ PACK_TOP_SECTION_BASE = 3.0
 # Answer keys and questions turn on normative rules: such sentences count double.
 PACK_NORMATIVE_BOOST = 1.0
 NORMATIVE_SENTENCE = re.compile(r"\b(?:MUST|SHOULD|MAY|REQUIRED|SHALL)\b|\[MQTT-")
+# Multi-part queries: parts separated by ';' (one per part of a question) are ranked
+# and excerpted separately and merged into one pack, each with MULTI_PACK_CHARS / n
+# characters (at least MIN_PART_CHARS). Parts beyond MAX_QUERY_PARTS join the last.
+QUERY_PART_SEPARATOR = re.compile(r"\s*;\s*")
+MAX_QUERY_PARTS = 4
+MULTI_PACK_CHARS = 9000
+MIN_PART_CHARS = 2500
+# A chosen sentence in a list brings the list's lead-in ("The send quota is
+# incremented by 1:"), and the whole list when it is at most this long.
+LIST_BLOCK_CHARS = 1200
 # Related requirements: labelled sentences from sections ranked below the pack that
 # share at least RELATED_MIN_TERMS query terms, best first, in RELATED_CHARS more.
 RELATED_SECTIONS = 40
@@ -182,6 +192,18 @@ class _Doc:
     body_content: str
 
 
+@dataclass
+class _Pick:
+    """Sentences (unit indices) chosen from one section for an evidence pack."""
+
+    doc: _Doc
+    units: list[tuple[int, int]]
+    chosen: set[int]
+
+    def render(self) -> str:
+        return _render_passages(self.doc.info.body, self.units, sorted(self.chosen))
+
+
 class SearchIndex:
     def __init__(self, engine: SpecEngine) -> None:
         self.engine = engine
@@ -305,26 +327,39 @@ class SearchIndex:
     def evidence(
         self, docs: list[_Doc], query: str, budget: int
     ) -> list[tuple[_Doc, str]]:
+        """Query-focused excerpts of ``docs``, rendered (see ``select``)."""
+        return [
+            (pick.doc, pick.render())
+            for pick in self.select(docs, query, budget, set())
+        ]
+
+    def select(
+        self, docs: list[_Doc], query: str, budget: int, seen: set[str]
+    ) -> list[_Pick]:
         """Query-focused excerpts drawn from several ranked sections at once.
 
         Every sentence of the candidate sections scores the idf of the query terms
         it contains (plus a phrase bonus); sentences of the best section also get a
         base score, normative sentences count double, and every score is discounted
         by its section's rank. Sentences are added best first, each with its
-        neighbours, while the excerpts plus section headings fit ``budget``.
-        Sections come back in rank order, sentences in document order."""
+        neighbours and, inside a list, the list's lead-in (the whole list when it is
+        short), while the excerpts plus section headings fit ``budget``. Sentences
+        in ``seen`` (already shown) are skipped and new ones are added to it.
+        Sections come back in rank order."""
         terms = query_terms(query)
         patterns = [
             re.compile(rf"(?<![0-9a-z]){re.escape(_prefix_form(t))}") for t in terms
         ]
         phrase = phrase_form(query) if len(terms) > 1 else ""
         per_doc: list[list[tuple[int, int]]] = []
+        blocks: list[dict[int, tuple[int | None, list[int]]]] = []
         candidates: list[tuple[float, int, int]] = []
         for rank, doc in enumerate(docs):
             body = doc.info.body
             units = _units(body)
             haystack = match_form(body)
             per_doc.append(units)
+            blocks.append(_list_blocks(body, units))
             for i, (start, end) in enumerate(units):
                 segment = haystack[start:end]
                 score = sum(
@@ -343,13 +378,17 @@ class SearchIndex:
         candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
         chosen: dict[int, set[int]] = {}
         sizes: dict[int, int] = {}
-        seen: set[str] = set()  # sentences already shown in a higher-ranked section
         total = 0
         for _, rank, best in candidates:
             units = per_doc[rank]
             info = docs[rank].info
             heading = len(info.id) + len(info.title) + 6
-            for j in (best, best + 1, best - 1):
+            for j in (
+                best,
+                best + 1,
+                best - 1,
+                *_list_context(units, blocks[rank], best),
+            ):
                 current = chosen.get(rank, set())
                 if not 0 <= j < len(units) or j in current:
                     continue
@@ -365,13 +404,7 @@ class SearchIndex:
                 total += size - sizes.get(rank, 0)
                 chosen[rank], sizes[rank] = trial, size
                 seen.add(text)
-        return [
-            (
-                docs[r],
-                _render_passages(docs[r].info.body, per_doc[r], sorted(chosen[r])),
-            )
-            for r in sorted(chosen)
-        ]
+        return [_Pick(docs[r], per_doc[r], chosen[r]) for r in sorted(chosen)]
 
     def related(
         self, docs: list[_Doc], query: str, shown: list[str], budget: int
@@ -537,6 +570,57 @@ def _units(text: str) -> list[tuple[int, int]]:
     return spans
 
 
+_LIST_ITEM = re.compile(r"[ \t]*(?:[-\u2022*]|\d+[.)]|[a-z][.)])\s")
+
+
+def _list_blocks(
+    text: str, units: list[tuple[int, int]]
+) -> dict[int, tuple[int | None, list[int]]]:
+    """Unit index -> (lead-in, members) of the list it belongs to. The lead-in is the
+    sentence ending with ':' just before the list, if any; members are the lead-in
+    and the sentences of the list items. Only units in a list are keys."""
+    item = []
+    for start, _ in units:
+        line = text.rfind("\n", 0, start) + 1
+        item.append(_LIST_ITEM.match(text, line) is not None)
+    blocks: dict[int, tuple[int | None, list[int]]] = {}
+    i = 0
+    while i < len(units):
+        if not item[i]:
+            i += 1
+            continue
+        j = i
+        while j < len(units) and item[j]:
+            j += 1
+        before = i - 1
+        lead = (
+            before
+            if before >= 0
+            and text[units[before][0] : units[before][1]].rstrip().endswith(":")
+            else None
+        )
+        members = ([lead] if lead is not None else []) + list(range(i, j))
+        for m in members:
+            blocks[m] = (lead, members)
+        i = j
+    return blocks
+
+
+def _list_context(
+    units: list[tuple[int, int]],
+    blocks: dict[int, tuple[int | None, list[int]]],
+    i: int,
+) -> list[int]:
+    """Units to show with unit ``i`` when it is in a list: the whole list if it fits
+    LIST_BLOCK_CHARS, else its lead-in."""
+    if i not in blocks:
+        return []
+    lead, members = blocks[i]
+    if sum(units[m][1] - units[m][0] for m in members) <= LIST_BLOCK_CHARS:
+        return members
+    return [lead] if lead is not None else []
+
+
 def _passage_size(units: list[tuple[int, int]], chosen: set[int]) -> int:
     """Length of ``_render_passages`` for these units, without building it."""
     order = sorted(chosen)
@@ -604,6 +688,16 @@ def search(
     normative_only: bool = False,
 ) -> dict[str, Any]:
     """An evidence pack: query-focused excerpts from the best-ranked sections."""
+    parts = query_parts(query)
+    if len(parts) > 1:
+        return _multi_search(
+            engine,
+            query,
+            parts,
+            chapter=chapter,
+            limit=limit,
+            normative_only=normative_only,
+        )
     query, root, docs, label, identifier = _ranked(
         engine, query, chapter, normative_only
     )
@@ -611,17 +705,8 @@ def search(
     ranked = docs
     docs = docs[: limit or PACK_SECTIONS]
     sections: list[dict[str, Any]] = []
-    if label is not None:
-        # Requirement label: the requirement itself, then the sections that list it.
-        for position, doc in enumerate(docs[:LABEL_SECTIONS]):
-            if label not in doc.info.section.requirements:
-                continue
-            budget = LABEL_FIRST_CHARS if position == 0 else LABEL_OTHER_CHARS
-            excerpt = _label_snippet(engine, doc.info, label, budget)
-            sections.append(_entry(doc.info, excerpt))
-    elif identifier and docs:
-        info = docs[0].info
-        sections.append(_entry(info, window(info.body, None, SECTION_QUERY_CHARS)))
+    if label is not None or (identifier and docs):
+        sections = _reference_entries(engine, docs, label)
     elif docs:
         for doc, excerpt in index.evidence(docs, query, PACK_CHARS):
             sections.append(_entry(doc.info, excerpt))
@@ -640,6 +725,109 @@ def search(
             sections.append(
                 _entry(info, window(info.body, index.anchor(info.body, query), 1600))
             )
+    return _result(engine, query, root, normative_only, sections)
+
+
+def query_parts(query: str) -> list[str]:
+    """The ';'-separated parts of a query that have something to search for."""
+    parts = [p for p in QUERY_PART_SEPARATOR.split(query.strip()) if tokenize(p)]
+    if len(parts) > MAX_QUERY_PARTS:
+        parts = [*parts[: MAX_QUERY_PARTS - 1], " ".join(parts[MAX_QUERY_PARTS - 1 :])]
+    return parts
+
+
+def _multi_search(
+    engine: SpecEngine,
+    query: str,
+    parts: list[str],
+    *,
+    chapter: str | None,
+    limit: int | None,
+    normative_only: bool,
+) -> dict[str, Any]:
+    """One pack for several parts of a question: each part is ranked and excerpted
+    on its own share of the budget; a section chosen by several parts appears once
+    with the union of their sentences, and a sentence is shown once. Sections come
+    in the order parts first choose them; requirement-label and section-id parts
+    show what a search for them alone would."""
+    engine.guard("query", query)
+    index = engine.search_index
+    budget = max(MIN_PART_CHARS, MULTI_PACK_CHARS // len(parts))
+    seen: set[str] = set()
+    picks: dict[str, _Pick] = {}
+    references: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    below: dict[str, _Doc] = {}
+    root = None
+    for raw in parts:
+        part, root, docs, label, identifier = _ranked(
+            engine, raw, chapter, normative_only
+        )
+        if label is not None or (identifier and docs):
+            for entry in _reference_entries(
+                engine, docs[: limit or PACK_SECTIONS], label
+            ):
+                if entry["section"] not in picks and entry["section"] not in references:
+                    references[entry["section"]] = entry
+                    order.append(entry["section"])
+            continue
+        for doc in docs[PACK_SECTIONS:RELATED_SECTIONS]:
+            below.setdefault(doc.info.id, doc)
+        for pick in index.select(docs[: limit or PACK_SECTIONS], part, budget, seen):
+            sid = pick.doc.info.id
+            if sid in picks:
+                picks[sid].chosen |= pick.chosen
+            elif sid not in references:
+                picks[sid] = pick
+                order.append(sid)
+    sections = [
+        references[sid]
+        if sid in references
+        else _entry(picks[sid].doc.info, picks[sid].render())
+        for sid in order
+    ]
+    if picks and limit is None:
+        others = [
+            doc
+            for sid, doc in below.items()
+            if sid not in picks and sid not in references
+        ]
+        excerpts = [entry["excerpt"] for entry in sections]
+        for doc, excerpt in index.related(
+            others, " ".join(parts), excerpts, RELATED_CHARS
+        ):
+            sections.append(_entry(doc.info, excerpt))
+    result = _result(engine, query, root, normative_only, sections)
+    result["parts"] = parts
+    return result
+
+
+def _reference_entries(
+    engine: SpecEngine, docs: list[_Doc], label: str | None
+) -> list[dict[str, Any]]:
+    """Entries for a requirement-label query (the requirement in its home section,
+    then the sections that list it) or a section-id query (that section)."""
+    if label is None:
+        info = docs[0].info
+        return [_entry(info, window(info.body, None, SECTION_QUERY_CHARS))]
+    entries = []
+    for position, doc in enumerate(docs[:LABEL_SECTIONS]):
+        if label not in doc.info.section.requirements:
+            continue
+        budget = LABEL_FIRST_CHARS if position == 0 else LABEL_OTHER_CHARS
+        entries.append(
+            _entry(doc.info, _label_snippet(engine, doc.info, label, budget))
+        )
+    return entries
+
+
+def _result(
+    engine: SpecEngine,
+    query: str,
+    root: SectionInfo | None,
+    normative_only: bool,
+    sections: list[dict[str, Any]],
+) -> dict[str, Any]:
     v = engine.version
     best = sections[0]["section"] if sections else None
     if sections:

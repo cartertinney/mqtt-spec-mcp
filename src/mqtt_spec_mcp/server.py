@@ -40,10 +40,11 @@ Evidence from the OASIS MQTT 3.1.1 and 5.0 specifications; each call reads one v
 carry section numbers, labels or codes between versions (3.1.1 has Clean Session and \
 return codes; 5.0 has Clean Start, Session Expiry, properties and reason codes). To \
 compare, query each version and cite the version with each claim.
-- Consult the tools before answering: search once with all the question's key \
-terms and answer from the excerpts, citing their sections; use lookup for one exact \
-packet, property, code, label or term. Get one listed section only if a rule you \
-need is missing. Never invent identifiers.
+- Consult the tools before answering: search once with the question's key terms, \
+one ';'-separated group per part of the question, and answer from the excerpts, \
+citing their sections; use lookup for one exact packet, property, code, label or \
+term. Get one listed section only if a rule you need is missing. Never invent \
+identifiers.
 - Keep MUST/SHOULD/MAY and every condition and exception.
 """
 
@@ -189,7 +190,10 @@ TOOLS: tuple[types.Tool, ...] = (
             {
                 "query": {
                     "type": "string",
-                    "description": "All the question's key terms.",
+                    "description": (
+                        "The question's key terms; for several parts, one group per "
+                        "part, separated by ';'."
+                    ),
                 }
             },
             ["query"],

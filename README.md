@@ -11,9 +11,9 @@ specification into their context.
 - **Strict version isolation.** Every call names exactly one version. Nothing is
   inferred, defaulted, merged or carried over between 3.1.1 and 5.0.
 - Small responses and a small tool surface: one search returns an evidence pack of
-  about 6,000 characters drawn from several sections, `get` pages never exceed
-  `max_chars`, and the tool definitions plus instructions an agent sees cost about
-  530 tokens per model call.
+  about 6,000 characters drawn from several sections (up to about 11,000 for a
+  question with several parts), `get` pages never exceed `max_chars`, and the tool
+  definitions plus instructions an agent sees cost about 560 tokens per model call.
 
 The server returns source excerpts. The agent does the reasoning, and the OASIS
 publications remain the authoritative text.
@@ -121,19 +121,22 @@ call with version 3.1.1 returns 14.
 ### `mqtt_spec_search`
 
 `version` and `query`: the question's key terms, a section id (`3.1.2.4`) or a
-requirement label (`MQTT-3.1.2-23`). `chapter` (restrict to a section's subtree),
-`limit` (1–8 sections; giving it also leaves out related requirements) and
-`normative_only` are accepted.
+requirement label (`MQTT-3.1.2-23`). For a question with several parts, give one
+group of key terms per part, separated by `;`. `chapter` (restrict to a section's
+subtree), `limit` (1–8 sections, per part; giving it also leaves out related
+requirements) and `normative_only` are accepted.
 
 ```json
 {"version": "5.0", "query": "Topic Alias 0 or above Topic Alias Maximum"}
+{"version": "5.0", "query": "Receive Maximum send quota; Receive Maximum default; QoS 0 Receive Maximum; Receive Maximum exceeded"}
 ```
 
 The result is a Markdown evidence pack of about 5,500 characters: query-focused
 excerpts from up to eight of the best-ranked sections, each under a `## <id> <title>`
 heading, in rank order. The sentences that carry the most query information across
-those sections are taken first, each with a neighbouring sentence for context.
-Normative sentences (MUST, SHOULD, MAY or a requirement label) count double, and the
+those sections are taken first, each with a neighbouring sentence for context; a
+sentence from a list also brings the list's lead-in, and the whole list when it is
+at most 1,200 characters. Normative sentences (MUST, SHOULD, MAY or a requirement label) count double, and the
 best-ranked section's remaining sentences fill spare room before weak matches
 elsewhere. `...` marks every cut, and a sentence repeated word for word in a later
 section is shown once. Up to 700 more characters follow as related requirements:
@@ -144,6 +147,14 @@ PINGREQ Actions ("The Server MUST send a PINGRESP packet in response to a PINGRE
 packet"), that ranks low as a section. A requirement-label query shows the
 requirement in its home section and the sections that list it; a section-id query
 shows that section from its start.
+
+A query with several `;`-separated parts (up to four; more are joined to the
+fourth) is answered with one pack. Each part is ranked and excerpted on its own
+share of 9,000 characters, at least 2,500, so each part of a question gets the
+rules that use its own words. A section chosen by several parts appears once with
+all their sentences, a sentence is shown once, and related requirements use all
+the parts' terms. A requirement-label or section-id part shows what a search for it
+alone would.
 
 ```text
 MQTT 5.0 only. Never apply its section numbers, labels, fields or codes to MQTT 3.1.1. Source: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html
@@ -239,7 +250,8 @@ The server sends these instructions to clients. In short:
 ## Recommended workflow
 
 1. Consult the tools before answering. Use `mqtt_spec_lookup` for one exact,
-   recognized entity; otherwise search once with all the question's key terms.
+   recognized entity; otherwise search once with the question's key terms, one
+   `;`-separated group per part of the question.
 2. Answer from the excerpts: state each rule that bears on the question with its
    MUST/SHOULD/MAY and conditions, and cite its section.
 3. If a needed rule is missing, get one listed section with `mqtt_spec_get`, and

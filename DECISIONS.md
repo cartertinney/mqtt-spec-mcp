@@ -148,9 +148,19 @@ appear in the body.
   on rules, and the base score fills a list of conditions in the best section
   (Receive Maximum's quota rules, say) before single-term matches in sections
   ranked lower. Re-ranking by best single-sentence coverage, title
-  diversification, attaching the packet's Actions section, keeping list items
-  together and a budget scaled by the number of query terms were measured and
-  rejected (at most +0.01 at the same size, or lower retrieval metrics).
+  diversification, attaching the packet's Actions section and a budget scaled by
+  the number of query terms were measured and rejected (at most +0.01 at the same
+  size, or lower retrieval metrics).
+- List context: a chosen sentence in a list brings the list's lead-in (the
+  sentence ending with `:` before it) and, when lead-in and items total at most
+  1,200 characters, the whole list. Why: of the facts the pack cut from a section
+  it showed, 7 of 13 were list items, usually without their lead-in ("Each time a
+  PUBREC packet is received with a Return Code of 0x80 or greater" means nothing
+  without "The send quota is incremented by 1:"). At the same size first-search
+  coverage moved only from 0.915 to 0.917 (5.0 edge +2.5 points and synthesis +1.3,
+  3.1.1 applied -1.1 and edge -1.7): a whole list displaces other sentences. It is
+  kept because a list shown whole is read correctly; a 600-character limit was
+  worse (0.910).
 - Related requirements: after the pack, up to 700 characters of labelled
   requirement sentences from the sections ranked 9th to 40th that are not in the
   pack, each sharing at least two distinct query terms, scored by the idf of those
@@ -166,13 +176,31 @@ appear in the body.
   is no gain, so this is the most efficient use of extra characters, not a free
   one. Drawing the pack itself from 12, 16 or 24 sections changed nothing. An
   explicit `limit` turns related requirements off.
+- Multi-part queries: `;` separates the parts of a question (at most four; more
+  are joined to the fourth). Each part is ranked and excerpted on its own share of
+  9,000 characters (at least 2,500), sharing one set of sentences already shown; a
+  section chosen by several parts appears once with the union of their sentences,
+  in the order the parts first choose sections. Related requirements use all the
+  parts' terms. Why: hard questions have several parts, but one keyword query makes
+  the pack pick sentences that share its words, so rules that answer the other
+  parts in their own words are cut. Of the facts `mcp` never saw in 1,200 runs, 37
+  of 53 were in a section the pack showed; `grep` mostly never looked (29 of 53) or
+  saw only matching lines (16). In the 150 hard-question searches where the model
+  searched one version two or more times, its first search held 0.827 of the
+  answer-key facts in 1,600 `o200k_base` tokens; its searches joined as one
+  multi-part query held 0.965 in 2,450 tokens, against 0.975 in 3,540 tokens plus
+  1.19 more model calls when made separately. Totals of 5,500 and 7,000 characters
+  held 0.897 and 0.941. The model had already used `;` this way unprompted in 9 of
+  2,134 searches. A requirement-label or section-id part shows what a search for it
+  alone would.
 - The pack ends with the next step: state each rule in the excerpts that bears on
   the question, with its MUST/SHOULD/MAY and conditions, and cite its section; if
   a needed rule is missing, get one listed section; do not search this version
   again for this question (to compare versions, search the other one once). The
   version-specific wording came after 11 of 60 comparison runs consulted only one
-  version (quality 0.80 to 0.88, against 0.92 to 0.97 with both). With no match it says nothing matched in this version, that this is
-  not proof of absence, and that it says nothing about any other version.
+  version (quality 0.80 to 0.88, against 0.92 to 0.97 with both). With no match
+  it says nothing matched in this version, that this is not proof of absence, and
+  that it says nothing about any other version.
 - The tools advertise only the parameters agents used in 803 benchmark runs
   (`outline` 7 calls, search's optional parameters 9 uses in 886 searches): outline
   `parent`; search `query`; get `section`, `cursor`; lookup `kind`, `query`,
@@ -183,7 +211,8 @@ appear in the body.
   enum has no description, optional strings are plain `string` (null is still
   accepted) and non-empty checks are not advertised. Together the model-visible
   tool definitions and instructions fell from 1,222 to 531 `o200k_base` tokens per
-  call; the scope sentence in every result is shorter too.
+  call (556 after the multi-part guidance); the scope sentence in every result is
+  shorter too.
 - The server instructions tell the agent to consult the tools before answering (in
   the first full run 4 of 120 MCP 5.0 runs answered from memory and scored 0.59).
 

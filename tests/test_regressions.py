@@ -14,10 +14,17 @@ import pytest
 
 from mqtt_spec_mcp.engine import SpecEngine
 from mqtt_spec_mcp.search import (
+    MAX_QUERY_PARTS,
     MAX_QUERY_TERMS,
+    MIN_PART_CHARS,
+    MULTI_PACK_CHARS,
     PACK_CHARS,
     PACK_SECTIONS,
     RELATED_CHARS,
+    _list_blocks,
+    _list_context,
+    _units,
+    query_parts,
     query_terms,
     search,
 )
@@ -537,6 +544,77 @@ def test_evidence_pack_adds_related_requirements(ok: JsonCall) -> None:
     limited = ok("mqtt_spec_search", version="5.0", query=query, limit=PACK_SECTIONS)
     assert "3.12.4" not in [r["section"] for r in limited["results"]]
     assert len(limited["results"]) <= PACK_SECTIONS
+
+
+def test_list_item_brings_its_lead_in_and_list(
+    engines: dict[str, SpecEngine],
+) -> None:
+    def context(section: str, sentence: str) -> list[str]:
+        body = engines["5.0"].sections[section].body
+        units = _units(body)
+        i = next(k for k, (a, b) in enumerate(units) if body[a:b].startswith(sentence))
+        return [
+            body[a:b]
+            for a, b in (
+                units[m] for m in _list_context(units, _list_blocks(body, units), i)
+            )
+        ]
+
+    pubrec = context("4.9", "- Each time a PUBREC packet is received")
+    assert pubrec[0] == "The send quota is incremented by 1:"
+    assert any(text.startswith("- Each time a PUBACK or PUBCOMP") for text in pubrec)
+    alias = context("3.3.4", "- a) If the packet has a zero length Topic Name")
+    assert alias[0].startswith("If the PUBLISH packet contains a Topic Alias")
+    assert any("0x82" in text for text in alias)
+    # A list longer than LIST_BLOCK_CHARS without a lead-in adds nothing.
+    assert context("4.8.2", "- If there's more than one Session subscribed") == []
+
+
+def test_query_parts() -> None:
+    assert query_parts("keep alive") == ["keep alive"]
+    assert query_parts(" keep alive ; PINGREQ ;; ") == ["keep alive", "PINGREQ"]
+    assert query_parts("a b; ;  ...; c d") == ["a b", "c d"]
+    many = query_parts("p1; p2; p3; p4; p5; p6")
+    assert len(many) == MAX_QUERY_PARTS
+    assert many[-1] == "p4 p5 p6"
+
+
+def test_multi_part_search_covers_each_part(ok: JsonCall) -> None:
+    bullet = (
+        "Each time a PUBREC packet is received with a Return Code of 0x80 or greater"
+    )
+    single = ok("mqtt_spec_search", version="5.0", query="Receive Maximum")
+    assert bullet not in "\n".join(r["snippet"] for r in single["results"])
+    query = (
+        "Receive Maximum send quota decrement increment; Receive Maximum default; "
+        "QoS 0 Receive Maximum; Receive Maximum exceeded DISCONNECT"
+    )
+    pack = ok("mqtt_spec_search", version="5.0", query=query)
+    text = "\n".join(r["snippet"] for r in pack["results"])
+    assert bullet in text
+    assert "65,535" in text
+    assert "0x93" in text
+    sections = [r["section"] for r in pack["results"]]
+    assert len(sections) == len(set(sections))
+
+
+def test_multi_part_search_size_and_limit(call: Call, ok: JsonCall) -> None:
+    query = (
+        "keep alive PINGREQ; Will Delay Interval; Session Expiry Interval; Topic Alias"
+    )
+    text = call("mqtt_spec_search", version="5.0", query=query).text
+    largest = max(MULTI_PACK_CHARS, MIN_PART_CHARS * MAX_QUERY_PARTS)
+    assert len(text) < largest + RELATED_CHARS + 1500
+    limited = ok("mqtt_spec_search", version="5.0", query=query, limit=1)
+    assert len(limited["results"]) <= MAX_QUERY_PARTS
+
+
+def test_multi_part_search_keeps_reference_parts(ok: JsonCall) -> None:
+    pack = ok("mqtt_spec_search", version="5.0", query="MQTT-3.1.2-4; Clean Start")
+    assert pack["results"][0]["section"] == "3.1.2.4"
+    by_id = ok("mqtt_spec_search", version="3.1.1", query="3.1.2.4; keep alive")
+    assert by_id["results"][0]["section"] == "3.1.2.4"
+    assert "3.1.2.10" in [r["section"] for r in by_id["results"]]
 
 
 def test_evidence_excerpts_are_verbatim(engines: dict[str, SpecEngine]) -> None:

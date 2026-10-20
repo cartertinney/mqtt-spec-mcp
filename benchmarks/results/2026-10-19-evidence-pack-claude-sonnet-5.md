@@ -166,3 +166,4 @@ points lower.
 | v7 | 64c2fa0 | `return_code` without a packet filter; one search of the other version allowed for comparisons; packet Actions in lookups; consult the tools before answering |
 | v8 | 32914d9 | Related requirements from sections ranked below the pack; leaner advertised schemas |
 | v9 | 6448cb8 | Multi-part queries (`;`-separated parts, each ranked and excerpted on its own budget, one merged pack); a list item brings its lead-in and short lists come whole |
+| - | 87a78db | Everyday spellings matched in the specifications' terms (`keepalive`, `LWT`, `broker`, `QoS0`, `client id`, `kick`). No agent pass: retrieval Recall@1 0.80 to 0.81 and MRR 0.87 to 0.88 on the corpus queries; 26 of the 1,569 searches the model made in these passes contain such words |

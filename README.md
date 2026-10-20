@@ -162,12 +162,23 @@ alone would.
 ```text
 MQTT 5.0 only. Never apply its section numbers, labels, fields or codes to MQTT 3.1.1. Source: https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html
 
+## 3.2.2.3.8 Topic Alias Maximum
+34 (0x22) Byte, Identifier of the Topic Alias Maximum.
+Followed by the Two Byte Integer representing the Topic Alias Maximum value. ...
+
+## 3.1.2.11.5 Topic Alias Maximum
+...This value indicates the highest value that the Client will accept as a Topic Alias sent by the Server. ...
+
 ## 3.3.2.3.4 Topic Alias
 35 (0x23) Byte, Identifier of the Topic Alias. ...
 
 ## 3.3.4 PUBLISH Actions
 ...If the PUBLISH packet contains a Topic Alias, the receiver processes it as follows:
-- 1) A Topic Alias value of 0 or greater than the Maximum Topic Alias is a Protocol Error, ...
+- 1) A Topic Alias value of 0 or greater than the Maximum Topic Alias is a Protocol Error, the receiver uses DISCONNECT with Reason Code of 0x94 (Topic Alias invalid) as described in section 4.13.
+- 2) If the receiver has already established a mapping for the Topic Alias, then
+...
+
+[five more sections]
 
 Answer from these excerpts: state each rule here that bears on the question, with its MUST/SHOULD/MAY and conditions, and cite its section. If a needed rule is missing, get one listed section with mqtt_spec_get (version='5.0'). Do not search MQTT 5.0 again for this question (to compare versions, search MQTT 3.1.1 once).
 ```
@@ -385,7 +396,8 @@ stored answers offline.
 
 [benchmarks/results/2026-10-19-evidence-pack-claude-sonnet-5.md](benchmarks/results/2026-10-19-evidence-pack-claude-sonnet-5.md)
 has the full report. Claude Sonnet 5 through the Copilot SDK, all 200 cases, this
-server (with multi-part search) and the grep baseline run side by side: the 102
+server (commit 6448cb8, with multi-part search) and the grep baseline run side by
+side: the 102
 hard cases (synthesis, applied, edge, comparison) in two epochs and the 98 lookup
 and normative cases in one, on answers the answer-key checks never saw. Each case is
 averaged over its runs:
@@ -399,7 +411,9 @@ Against a plain grep tool over the same text the model was at least as accurate
 (+0.8 points, 95% CI -0.4 to +2.0), used 15% fewer tokens (CI 7.4% to 22.1%; 20%
 on the hard cases) and was 18% faster. Once cached tokens are priced (cache reads
 0.1, cache writes 1.25, output 5) the two cost about the same. It led clearly on
-questions comparing the two versions (+5.5 points, CI +1.1 to +10.2). Earlier
+questions comparing the two versions (+5.5 points, CI +1.1 to +10.2). The later
+rewrite of everyday spellings (`keepalive`, `LWT`, `broker`, ...) was measured on
+retrieval only; it applies to 26 of the 1,569 searches the model made. Earlier
 same-time passes of the evidence-pack design, and the whole specification in the
 prompt (1.6 points more accurate, 11 times the tokens), are in the same report;
 [benchmarks/results/2026-10-19-claude-sonnet-5.md](benchmarks/results/2026-10-19-claude-sonnet-5.md)

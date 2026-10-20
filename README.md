@@ -382,21 +382,23 @@ stored answers offline.
 
 [benchmarks/results/2026-10-19-evidence-pack-claude-sonnet-5.md](benchmarks/results/2026-10-19-evidence-pack-claude-sonnet-5.md)
 has the full report. Claude Sonnet 5 through the Copilot SDK, all 200 cases, this
-server and the grep baseline run side by side in two epochs (400 paired runs whose
-answers the answer-key checks never saw):
+server (with multi-part search) and the grep baseline run side by side: the 102
+hard cases (synthesis, applied, edge, comparison) in two epochs and the 98 lookup
+and normative cases in one, on answers the answer-key checks never saw. Each case is
+averaged over its runs:
 
 | condition | quality | pass rate | tokens/question | cost-weighted tokens | latency (mean) | model calls |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `mcp` | 0.977 | 88.0% | 7,816 | 7,863 | 8.3 s | 2.11 |
-| `grep` | 0.971 | 86.5% | 8,667 | 7,619 | 9.2 s | 2.85 |
+| `mcp` | 0.979 | 89.2% | 7,730 | 7,752 | 8.1 s | 2.06 |
+| `grep` | 0.971 | 86.3% | 9,090 | 7,813 | 9.5 s | 2.94 |
 
-Against a plain grep tool over the same text the model was as accurate (+0.6
-points, 95% CI -0.4 to +1.8; -0.2 across all 1,200 pairs of the six evidence-pack
-passes), used 10% fewer tokens (CI 2.5% to 16.2%; 11% pooled) and was 11% faster.
-Once cached tokens are priced (cache reads 0.1, cache writes 1.25, output 5) the
-two cost about the same. In the first of those passes, the whole specification in
-the prompt scored 1.6 points higher than the evidence pack and used 11 times the
-tokens.
+Against a plain grep tool over the same text the model was at least as accurate
+(+0.8 points, 95% CI -0.4 to +2.0), used 15% fewer tokens (CI 7.4% to 22.1%; 20%
+on the hard cases) and was 18% faster. Once cached tokens are priced (cache reads
+0.1, cache writes 1.25, output 5) the two cost about the same. It led clearly on
+questions comparing the two versions (+5.5 points, CI +1.1 to +10.2). Earlier
+same-time passes of the evidence-pack design, and the whole specification in the
+prompt (1.6 points more accurate, 11 times the tokens), are in the same report;
 [benchmarks/results/2026-10-19-claude-sonnet-5.md](benchmarks/results/2026-10-19-claude-sonnet-5.md)
 has the earlier runs, including `none` and the previous search design.
 

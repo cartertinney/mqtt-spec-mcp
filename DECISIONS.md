@@ -192,7 +192,12 @@ appear in the body.
   1.19 more model calls when made separately. Totals of 5,500 and 7,000 characters
   held 0.897 and 0.941. The model had already used `;` this way unprompted in 9 of
   2,134 searches. A requirement-label or section-id part shows what a search for it
-  alone would.
+  alone would. In the paired run that followed (102 hard cases, two epochs) the
+  model split 87 of 255 searches, needed fewer follow-up calls, and `mcp` led
+  `grep` by 1.05 points (v8: 0.39) with 20% fewer tokens (v8: 13%); neither
+  quality difference is significant, and the gain was not concentrated in the runs
+  that split. On lookup and normative cases it split 10 of 66 searches and scored
+  as v8 did.
 - The pack ends with the next step: state each rule in the excerpts that bears on
   the question, with its MUST/SHOULD/MAY and conditions, and cite its section; if
   a needed rule is missing, get one listed section; do not search this version

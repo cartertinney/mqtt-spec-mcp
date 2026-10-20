@@ -6,7 +6,7 @@
   after three blind checks against stored answers; see [AUTHORING.md](../AUTHORING.md).
 - **Scoring:** scorer 1.3.2; every stored answer was rescored offline with the final
   keys (`mqtt-spec-bench-report --rescore`).
-- **Usage:** 2,600 runs in six passes, 6,213 premium requests, no errored runs.
+- **Usage:** 3,204 runs in eight passes, 7,746 premium requests, no errored runs.
 - **Design:** every pass ran `mcp` and `grep` side by side (the first also
   `full_spec`), because the same model scores measurably differently a few hours
   apart. Only conditions run together are compared.
@@ -15,7 +15,48 @@ This follows [2026-10-19-claude-sonnet-5.md](2026-10-19-claude-sonnet-5.md), whe
 the previous search (JSON results with snippets, server v3) was as accurate as grep
 but used 8% more raw tokens.
 
-## Current server (v8, commit 32914d9) against grep
+## Current server (v9, commit 6448cb8): multi-part search
+
+A query can carry one group of key terms per part of a question, separated by `;`,
+and is answered with one pack (see the README). Run as two same-time comparisons
+with `grep`: the 102 hard cases (synthesis, applied, edge, comparison) in two epochs,
+then the 98 lookup and normative cases in one. No key check had seen these answers.
+Each case is averaged over its runs, then over the 200 cases:
+
+| condition | quality | pass rate | tokens/question | cost-weighted tokens | model calls | latency s |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `mcp` | 0.979 | 0.892 | 7,730 | 7,752 | 2.06 | 8.08 |
+| `grep` | 0.971 | 0.863 | 9,090 | 7,813 | 2.94 | 9.51 |
+
+| `mcp` vs `grep` (bootstrap over cases) | estimate | 95% CI |
+| --- | ---: | --- |
+| quality delta (points) | +0.8 | -0.4 to +2.0 |
+| pass-rate delta (points) | +3.0 | -2.2 to +8.0 |
+| token reduction | 15.0% | 7.4% to 22.1% |
+| cost-weighted token reduction | 0.8% | -4.9% to +6.1% |
+| speedup | 1.18 | 1.14 to 1.21 |
+
+Hard cases (204 pairs), against v8 on the same cases in its own same-time pass:
+
+| category | `mcp` quality | `grep` quality | delta (95% CI) | v8 delta | `mcp` tokens | `grep` tokens |
+| --- | ---: | ---: | --- | ---: | ---: | ---: |
+| all hard | 0.971 | 0.960 | +1.05 [-0.68, +2.67] | +0.39 | 8,790 | 11,015 |
+| synthesis | 0.955 | 0.958 | -0.25 [-3.52, +2.98] | -0.90 | 9,418 | 12,904 |
+| applied | 0.979 | 0.977 | +0.17 [-2.26, +2.41] | +1.97 | 7,728 | 10,461 |
+| edge | 0.978 | 0.980 | -0.15 [-3.18, +2.73] | -1.97 | 8,691 | 9,554 |
+| comparison | 0.965 | 0.910 | +5.48 [+1.05, +10.23] | +1.55 | 10,141 | 11,472 |
+
+On hard cases `mcp` used 20% fewer tokens (CI 11.5% to 27.3%; v8 13%) and its pass
+rate was 5.9 points higher (CI -1.5 to +13.7; v8 -0.5). The model split 87 of 255
+searches into parts. The gain over v8 is not concentrated where it did: relative to
+the `grep` runs beside them, cases with a multi-part search moved from +0.74 to
++0.92 and the others from +0.05 to +1.14, and `grep` had a weaker pass (0.960
+against 0.965). Where it split, `mcp` needed fewer follow-up calls and used about
+340 fewer tokens. On the lookup and normative cases (98 pairs) `mcp` scored 0.987
+against 0.982 with 6.5% fewer tokens, the same as v8 (0.986, +0.9 points); it split
+10 of 66 searches.
+
+## Previous server (v8, commit 32914d9) against grep
 
 Two epochs run back to back, 400 paired runs. None of these answers was seen by any
 key check, so the keys were not fitted to them.
@@ -80,23 +121,31 @@ points lower.
 
 ## Findings
 
-- **Tokens.** `mcp` used about 10% fewer raw tokens than `grep` in every pass (11.1%
-  pooled, CI 3.8% to 17.6%). It answers from fewer model calls (2.1 against 2.9),
-  each carrying a larger tool result. Under cache pricing the two are about even:
-  a search result is written to the prompt cache once at 1.25, while grep's extra
-  calls mostly re-read its smaller prefix at 0.1. The current server's related
-  requirements made results about 150 tokens larger, which moved cost-weighted
-  tokens from a few percent below grep to a few percent above (within noise).
-- **Accuracy.** Tied. Across 1,200 pairs `mcp` is 0.2 points below `grep` (CI -0.9
-  to +0.5); the current server is 0.6 points above it on answers no key check had
-  seen (CI -0.4 to +1.8). Relative to the `grep` runs beside them, the current
-  server did better than v4 to v7 (+0.6 against an average of -0.6), but a
-  difference of about one point needs several more passes to resolve, and both
-  conditions sit near the ceiling that `full_spec` sets.
-- **Speed.** `mcp` was about 11% faster in every pass.
+- **Tokens.** `mcp` used fewer raw tokens than `grep` in every pass: about 10% in
+  the six full passes (11.1% pooled, CI 3.8% to 17.6%) and 15% with multi-part
+  search (20% on hard questions, where `grep` reads the most). It answers from
+  fewer model calls (2.1 against 2.9), each carrying a larger tool result. Under
+  cache pricing the two are about even: a search result is written to the prompt
+  cache once at 1.25, while grep's extra calls mostly re-read its smaller prefix at
+  0.1. v8's related requirements made results about 150 tokens larger, which
+  moved cost-weighted tokens from a few percent below grep to a few percent above
+  (within noise); with multi-part search they are even again.
+- **Accuracy.** No significant difference in any full comparison. Across the six
+  passes `mcp` is 0.2 points below `grep` (CI -0.9 to +0.5); v8 is 0.6 above it
+  (CI -0.4 to +1.8) and v9 0.8 above it (CI -0.4 to +2.0), on answers no key check
+  had seen. Relative to the `grep` runs beside them the later servers did better
+  (v4 to v7 averaged -0.6), but a difference of about one point needs several more
+  passes to resolve, and both conditions sit near the ceiling that `full_spec`
+  sets. Comparison questions are the one category where `mcp` leads clearly (+5.5
+  points with v9, CI +1.1 to +10.2).
+- **Speed.** `mcp` was 9% to 18% faster in every pass.
 - **Where each loses.** Over 1,200 runs each, both missed 53 facts that their tools
-  never returned. `mcp` left out more facts that were in its results (54 against
-  30); `grep` cited less precisely (citation recall 0.968 against 0.976). Lookup
+  never returned. For `mcp` 37 of those were in a section the pack showed but cut
+  (usually a list item or a rule that does not repeat the query's words, which led
+  to multi-part search); `grep` had mostly never looked at the section (29) or saw
+  only its matching lines (16). `mcp` left out more facts that were in its results
+  (54 against 30); `grep` cited less precisely (citation recall 0.968 against
+  0.976). Lookup
   questions cost `mcp` more tokens than `grep` (5,668 against 5,242 for 5.0): with a
   short answer the larger fixed prefix of four tool definitions and the server
   instructions dominates.
@@ -116,3 +165,4 @@ points lower.
 | v6 | 65b68a9 | Normative sentences count double and the best section fills first; lookups carry spec text (packet summary and fixed header, property excerpts, per-packet code meanings) |
 | v7 | 64c2fa0 | `return_code` without a packet filter; one search of the other version allowed for comparisons; packet Actions in lookups; consult the tools before answering |
 | v8 | 32914d9 | Related requirements from sections ranked below the pack; leaner advertised schemas |
+| v9 | 6448cb8 | Multi-part queries (`;`-separated parts, each ranked and excerpted on its own budget, one merged pack); a list item brings its lead-in and short lists come whole |

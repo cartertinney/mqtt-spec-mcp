@@ -1,0 +1,23 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.cartertinney/mqtt-spec-mcp",
+  "title": "MQTT Specification",
+  "description": "Offline MCP server for navigating the OASIS MQTT 3.1.1 and 5.0 specifications",
+  "repository": {
+    "url": "https://github.com/cartertinney/mqtt-spec-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "mqtt-spec-mcp",
+      "version": "0.1.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

@@ -122,22 +122,26 @@ can request a token, and it uploads only those saved files.
 
 These are already configured; recreate them if they are lost.
 
-1. On PyPI, Account settings → Publishing has a GitHub trusted publisher with:
-   - PyPI project name: `mqtt-spec-mcp`
+1. On PyPI, the `mqtt-spec-mcp` project's Publishing settings have a GitHub
+   trusted publisher with:
    - Owner: `cartertinney`
    - Repository name: `mqtt-spec-mcp`
    - Workflow name: `release.yml`
    - Environment name: `pypi`
-
-   Until the first upload, this is a pending publisher, which does not reserve
-   the project name.
 2. In this repository's Settings → Environments, the `pypi` environment requires
    a maintainer's approval and accepts only tags matching `v*`.
+3. [server.json](../server.json) lists the server in the
+   [MCP Registry](https://registry.modelcontextprotocol.io) as
+   `io.github.cartertinney/mqtt-spec-mcp`. The registry checks that namespace
+   through GitHub sign-in, and checks ownership of the PyPI package by finding
+   the matching `mcp-name:` line in the README published to PyPI.
 
 ### Each release
 
 1. Bump the version with `uv version --bump patch` (or `minor`), which updates
-   `pyproject.toml` and `uv.lock`. Commit the change to `main` and wait for CI.
+   `pyproject.toml` and `uv.lock`. Set the same version in both `version` fields
+   of `server.json`; a test fails until they match. Commit the change to `main`
+   and wait for CI.
 2. Optionally, run the Release workflow from the Actions tab: it builds and checks
    the distributions without publishing.
 3. Publish a GitHub release whose tag is `v` plus the version (for example
@@ -145,13 +149,21 @@ These are already configured; recreate them if they are lost.
    `gh release create v0.2.0 --generate-notes`.
 4. Open the workflow run from the Actions tab, choose **Review deployments**, and
    approve `pypi`. Then confirm the release at <https://pypi.org/p/mqtt-spec-mcp>.
+5. Publish the new version to the MCP Registry from an up-to-date checkout of
+   `main`, with [`mcp-publisher`](https://github.com/modelcontextprotocol/registry/releases)
+   (`brew install mcp-publisher`). The PyPI release must already be live:
+
+   ```bash
+   mcp-publisher login github
+   mcp-publisher publish
+   ```
 
 PyPI accepts each version number only once, even after deletion, but a rejected
 upload publishes nothing. If the upload fails because of a PyPI or GitHub
 setting, fix the setting and re-run the failed job. If it fails because of the
 package itself, delete the GitHub release and its tag, fix `main`, and release
 the same version again. A version that reached PyPI can't be replaced; fix it in
-the next version.
+the next version. Registry versions are likewise permanent once published.
 
 ## Before publishing
 

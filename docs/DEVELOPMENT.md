@@ -89,6 +89,46 @@ to both the index and attribution; do not update a hash merely to make a check p
 [DECISIONS.md](DECISIONS.md) records canonicalization, parsing, label reconciliation,
 and the historical evidence behind search and agent-guidance decisions.
 
+## Releasing
+
+[release.yml](../.github/workflows/release.yml) publishes to PyPI with
+[trusted publishing](https://docs.pypi.org/trusted-publishers/): GitHub Actions
+exchanges a short-lived OIDC token for an upload token, so the repository stores
+no PyPI credentials, and each upload carries signed build attestations.
+
+Its build job checks that the release tag matches the package version, runs the
+tests, builds the sdist and wheel, and checks them with `twine check` and the
+installed-wheel smoke test before saving them for upload. Only the publish jobs
+can request a token, and they upload only those saved files.
+
+### One-time setup
+
+1. On PyPI, open Account settings → Publishing and add a pending GitHub
+   publisher with:
+   - PyPI project name: `mqtt-spec-mcp`
+   - Owner: `cartertinney`
+   - Repository name: `mqtt-spec-mcp`
+   - Workflow name: `release.yml`
+   - Environment name: `pypi`
+
+   A pending publisher does not reserve the name until its first upload.
+2. On [TestPyPI](https://test.pypi.org/), add the same publisher with
+   environment name `testpypi`.
+3. In this repository's Settings → Environments, create `pypi` with yourself as a
+   required reviewer, and create `testpypi`.
+
+### Each release
+
+1. Bump the version with `uv version --bump patch` (or `minor`), which updates
+   `pyproject.toml` and `uv.lock`. Commit the change to `main` and wait for CI.
+2. Optionally, run the Release workflow from the Actions tab. It uploads the
+   current version to TestPyPI; each version can be uploaded only once there.
+3. Publish a GitHub release whose tag is `v` plus the version (for example
+   `v0.2.0`), using generated release notes:
+   `gh release create v0.2.0 --generate-notes`.
+4. Approve the `pypi` deployment when the workflow asks, then confirm the release
+   at <https://pypi.org/p/mqtt-spec-mcp>.
+
 ## Before publishing
 
 - Run the checks above from a clean checkout and test the installed wheel.

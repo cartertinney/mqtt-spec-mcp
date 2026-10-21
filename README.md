@@ -1,5 +1,7 @@
 # mqtt-spec-mcp
 
+<!-- mcp-name: io.github.cartertinney/mqtt-spec-mcp -->
+
 An offline [Model Context Protocol](https://modelcontextprotocol.io) server for
 searching and citing the OASIS **MQTT 3.1.1** and **MQTT 5.0** specifications.
 Agents get focused source excerpts instead of loading a whole specification.
@@ -15,19 +17,26 @@ answer.
 
 ## Install and run
 
-Requires [uv](https://docs.astral.sh/uv/) and Python 3.10 or newer. The package is
-not published to PyPI; run it from a checkout:
+Requires Python 3.10 or newer. The simplest way to run the server is with
+[uv](https://docs.astral.sh/uv/):
 
 ```bash
-git clone https://github.com/cartertinney/mqtt-spec-mcp.git
-cd mqtt-spec-mcp
-uv sync --locked
-uv run mqtt-spec-mcp
+uvx mqtt-spec-mcp
 ```
 
-This starts a stdio MCP server, not an interactive command prompt.
-`uv run python -m mqtt_spec_mcp` also works. No environment variables, configuration
-files, or server flags are needed.
+`uvx` installs the package from PyPI into a cached, isolated environment and
+starts it. This starts a stdio MCP server, not an interactive command prompt;
+MCP clients launch it for you, as shown below.
+
+You can also install it with pipx or pip and run the `mqtt-spec-mcp` command:
+
+```bash
+pipx install mqtt-spec-mcp    # or: pip install mqtt-spec-mcp
+mqtt-spec-mcp
+```
+
+The server needs no environment variables, configuration files, flags, or network
+access.
 
 ## Connect a client
 
@@ -37,33 +46,34 @@ For Claude Desktop, Claude Code, Cursor, and clients using `mcpServers`:
 {
   "mcpServers": {
     "mqtt-spec": {
-      "command": "uv",
-      "args": ["--directory", "/absolute/path/to/mqtt-spec-mcp", "run", "mqtt-spec-mcp"]
+      "command": "uvx",
+      "args": ["mqtt-spec-mcp"]
     }
   }
 }
 ```
 
-For VS Code, put this in `.vscode/mcp.json`:
+For VS Code, put this in `.vscode/mcp.json` or your user MCP configuration:
 
 ```json
 {
   "servers": {
     "mqtt-spec": {
       "type": "stdio",
-      "command": "uv",
-      "args": ["--directory", "/absolute/path/to/mqtt-spec-mcp", "run", "mqtt-spec-mcp"]
+      "command": "uvx",
+      "args": ["mqtt-spec-mcp"]
     }
   }
 }
 ```
 
-Replace the absolute path with your checkout. This repository also includes
-[VS Code](.vscode/mcp.json) and [project-scoped](.mcp.json) configurations for using
-the server while working in the checkout.
+If the client can't find `uvx`, which is common for desktop apps that don't use
+your shell's `PATH`, give its absolute path (`which uvx` prints it).
 
-After upgrading, restart the server and start a new conversation so the client
-drops cached tool schemas.
+`uvx` keeps using the version it has cached. To upgrade, run
+`uvx mqtt-spec-mcp@latest` once. To pin a version, put `mqtt-spec-mcp@0.1.0` (or
+another release) in `args`. After upgrading, restart the server and start a new
+conversation so the client drops cached tool schemas.
 
 ## Tools
 
@@ -104,8 +114,8 @@ version-specific labels and codes must not be carried between versions.
 5. For comparisons, query each version separately. A miss in one says nothing
    about the other.
 
-See the [tool reference](docs/TOOLS.md) for all parameters, pagination, result
-formats, and errors.
+See the [tool reference](https://github.com/cartertinney/mqtt-spec-mcp/blob/main/docs/TOOLS.md)
+for all parameters, pagination, result formats, and errors.
 
 ## Sources and limitations
 
@@ -118,19 +128,22 @@ Indexes are generated from pinned source documents and validated at startup.
 They are transformed retrieval aids, not official publications. MQTT 3.1
 (pre-OASIS) is not supported, and this is not a broker or a conformance validator.
 
-[Limitations and roadmap](docs/STATUS.md) describe known retrieval gaps.
-[Benchmarks](benchmarks/README.md) covers the offline regression checks and
-reports from historical agent evaluations. Those evaluations used a private
-harness, corpus, and raw runs, so they cannot be reproduced from this repository.
+[Limitations and roadmap](https://github.com/cartertinney/mqtt-spec-mcp/blob/main/docs/STATUS.md)
+describe known retrieval gaps.
+[Benchmarks](https://github.com/cartertinney/mqtt-spec-mcp/blob/main/benchmarks/README.md)
+covers the offline regression checks and reports from historical agent
+evaluations. Those evaluations used a private harness, corpus, and raw runs, so
+they cannot be reproduced from this repository.
 
 ## Development
 
-See [development and release checks](docs/DEVELOPMENT.md) for testing, rebuilding
-indexes, and checking the installed wheel. Benchmark checks are checkout-only and
-are not shipped with the server.
+See [development and release checks](https://github.com/cartertinney/mqtt-spec-mcp/blob/main/docs/DEVELOPMENT.md)
+for running from a checkout, testing, rebuilding indexes, and releasing. Benchmark
+checks are checkout-only and are not shipped with the server.
 
 ## License
 
-The code is [MIT licensed](LICENSE). Specification text in the indexes and returned
-excerpts is copyright OASIS Open, not MIT licensed. [NOTICE](NOTICE) contains the
-source attribution, transformation details, and OASIS notices.
+The code is [MIT licensed](https://github.com/cartertinney/mqtt-spec-mcp/blob/main/LICENSE).
+Specification text in the indexes and returned excerpts is copyright OASIS Open,
+not MIT licensed. [NOTICE](https://github.com/cartertinney/mqtt-spec-mcp/blob/main/NOTICE)
+contains the source attribution, transformation details, and OASIS notices.

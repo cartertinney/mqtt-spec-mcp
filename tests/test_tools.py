@@ -25,7 +25,7 @@ def test_search_will_delay_interval(ok: JsonCall) -> None:
     result = ok("mqtt_spec_search", version="5.0", query="Will Delay Interval")
     assert result["results"][0]["section"] == "3.1.3.2.2"
     assert result["best_section"] == "3.1.3.2.2"
-    assert "again only for a part of the question" in result["next_step"]
+    assert "again at most once, only for a part of the" in result["next_step"]
 
 
 def test_search_label_normative_only(ok: JsonCall) -> None:

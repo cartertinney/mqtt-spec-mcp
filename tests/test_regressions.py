@@ -417,12 +417,11 @@ def test_will_is_a_search_term(ok: JsonCall) -> None:
 
 def test_next_step_says_excerpts_are_partial(ok: JsonCall) -> None:
     step = ok("mqtt_spec_search", version="5.0", query="keep alive")["next_step"]
-    assert "Sections marked (excerpt: ...) hold more than is shown" in step
-    assert (
-        "first get the one section that would say otherwise with mqtt_spec_get" in step
-    )
-    assert "otherwise answer from these results" in step
-    assert "Search MQTT 5.0 again only for a part of the question" in step
+    assert "most answers need nothing more" in step
+    assert "Sections without (excerpt: ...) are complete" in step
+    assert "get that one section with mqtt_spec_get" in step
+    assert "at most one section per version" in step
+    assert "Search MQTT 5.0 again at most once, only for a part of the" in step
     assert "to compare versions, search MQTT 3.1.1 once" in step
 
 

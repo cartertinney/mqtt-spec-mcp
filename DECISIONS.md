@@ -225,12 +225,12 @@ appear in the body.
   that split. On lookup and normative cases it split 10 of 66 searches and scored
   as v8 did.
 - The pack ends with the next step: state each rule that bears on the question,
-  with its MUST/SHOULD/MAY and conditions, and cite its section. Sections marked as
-  excerpts hold more than is shown. If the answer would say MQTT does not require,
-  define or mention something, leaves it open or optional, or that a rule has no
-  exception, first get the one section that would say otherwise; otherwise answer
-  from the results. Search this version again only for a part of the question the
-  results don't cover (to compare versions, search
+  with its MUST/SHOULD/MAY and conditions, and cite its section; most answers need
+  nothing more. Unmarked sections are complete. Only if the answer would say MQTT
+  does not require, define or mention something, leaves it open or optional, or
+  that a rule has no exception, and the deciding section is excerpted or not
+  listed, get that one section: at most one per version. Search this version again
+  at most once, only for a part of the question the results don't cover (to compare versions, search
   the other one once). The version-specific wording came after 11 of 60
   comparison runs consulted only one version (quality 0.80 to 0.88, against 0.92
   to 0.97 with both).
@@ -264,7 +264,31 @@ appear in the body.
       answers, up to 3.4 fetches per answer, and gained nothing.
     - The trigger is therefore narrowed to the claims behind the errors: that MQTT
       is silent, leaves something open or optional, or that a rule has no
-      exception. With no match
+      exception.
+  - The narrowed wording (dev pass 3, side by side with `grep`) kept the quality
+    gain: +1.8 points pooled (CI −0.2 to +3.7), with the pass rate +8.3 (CI +3.5
+    to +13.1) and both conditions at 2.7% of answers with an error. Tokens stayed
+    level with `grep` (+4.1%, CI −3.5 to +11.1).
+  - Replaying pass 3's 435 fetches showed the waste:
+    - 80 fetched a section the pack had shown complete, and 18 followed a
+      cursor. None of these added a rule behind a key fact.
+    - Only 35 fetches (8%) added such a rule first. All 32 of the facts that the
+      GPT and Grok models' fetches surfaced, and 5 of the 6 from the Claude
+      models' fetches, were credited to the same model and question in pass 1,
+      when those models rarely fetched. So the fetching bought one fact.
+    - Each extra model call re-sends the conversation: about 5,000 tokens for
+      gpt-6.1-sol and 17,000 for grok-4.7. Fetches cost tokens through the
+      calls they add, not their own text (about 2,000 characters each).
+    - Repeat searches in the same version were more productive. 103 repeats (77
+      of them Grok's) surfaced 6 facts not credited in pass 1, spread over four
+      models.
+    - Within the first search's pack, positions 5 and below supplied 26% of the
+      credited rules, so the pack stays as it is.
+  - The next step and instructions therefore say:
+    - unmarked sections are complete;
+    - most answers need nothing more;
+    - at most one fetch per version, under the same narrowed trigger;
+    - at most one repeat search per version. With no match
   it says nothing matched in this version, that this is not proof of absence, and
   that it says nothing about any other version.
 - The tools advertise only the parameters agents used in 803 benchmark runs

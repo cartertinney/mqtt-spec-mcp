@@ -111,7 +111,7 @@ robustness:
   ("MQTT 5.0: the server sends DISCONNECT ...").
 - Facts and citation groups that the prompt did not ask for.
 
-Scorer-level causes were fixed in the scorer (1.3.0 and 1.3.1, see DECISIONS.md),
+Scorer-level causes were fixed in the scorer (1.3.0 and 1.3.1, see [docs/DECISIONS.md](../docs/DECISIONS.md)),
 the rest in the keys.
 
 ### Checking keys against real answers

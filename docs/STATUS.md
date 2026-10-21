@@ -1,6 +1,6 @@
 # Status and next steps
 
-Last updated 2026-10-21, after release 2 (server commit 10402f0). [README.md](README.md)
+Last updated 2026-10-21, after release 2 (server commit 10402f0). [README.md](../README.md)
 covers using and benchmarking the server; [DECISIONS.md](DECISIONS.md) records each
 design decision and the evidence for it. This file is the starting point for picking
 the work up again.
@@ -34,7 +34,7 @@ the work up again.
 - **Independent corpus** `independent` 1.1.0.
   - 71 dev and 165 test questions, written in a separate clean-room session from
     the OASIS texts and real-world problem reports.
-  - Registered in [benchmarks/corpora/independent.json](benchmarks/corpora/independent.json),
+  - Registered in [benchmarks/corpora/independent.json](../benchmarks/corpora/independent.json),
     which expects the corpus checkout beside this repository at
     `../mqtt-spec-corpus`.
   - The corpus's brief and schemas are in that repository.
@@ -47,13 +47,13 @@ the work up again.
 
 | plan | server | decision | quality, all | complex questions | simple questions | tokens saved |
 | --- | --- | --- | --- | --- | --- | --- |
-| [release-1](benchmarks/plans/release-1.toml) | 4bd4586 | FAIL | −0.2 (−1.1, +0.6) | −0.4 | +0.6 | 39% |
-| [release-2](benchmarks/plans/release-2.toml) | 10402f0 | PASS | +0.9 (+0.2, +1.7) | +1.1 (+0.2, +2.1) | +0.1 (−0.7, +0.9) | 23% (19%, 27%) |
+| [release-1](../benchmarks/plans/release-1.toml) | 4bd4586 | FAIL | −0.2 (−1.1, +0.6) | −0.4 | +0.6 | 39% |
+| [release-2](../benchmarks/plans/release-2.toml) | 10402f0 | PASS | +0.9 (+0.2, +1.7) | +1.1 (+0.2, +2.1) | +0.1 (−0.7, +0.9) | 23% (19%, 27%) |
 
 Complex questions are the synthesis, scenario and edge kinds; simple ones are lookup
 and rule. Reports:
-[release 1](benchmarks/results/2026-10-20-independent-release-1.md) and
-[release 2](benchmarks/results/2026-10-21-independent-release-2.md).
+[release 1](../benchmarks/results/2026-10-20-independent-release-1.md) and
+[release 2](../benchmarks/results/2026-10-21-independent-release-2.md).
 
 In short, the tool adds modest, measurable value on questions that need several
 sections and is level with `grep` on simple ones. It uses about a quarter fewer
@@ -95,7 +95,7 @@ tokens, and about the same cost once each model's token prices are applied.
   (about 62 MB on the development machine). They cover the bundled-corpus passes,
   independent dev passes 1 to 5 and the release 1 and 2 test runs. Reports
   regenerate from these offline; without them, only the curated reports in
-  [benchmarks/results/](benchmarks/results/) remain.
+  [benchmarks/results/](../benchmarks/results/) remain.
 - **The independent corpus folder** is a local git repository with no remote.
 - **The analysis scripts behind DECISIONS** (replaying recorded tool calls, loss
   anatomy, judge calibration) lived outside the repository. Their methods are

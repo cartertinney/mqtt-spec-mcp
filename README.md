@@ -324,7 +324,7 @@ atomically and only if a strict completeness gate passes:
 `--allow-source-mismatch` exists only for deliberately reviewing a changed source.
 The server loads each index by package resource, rejects unknown fields, and
 requires its metadata to match that version's pin exactly. See
-[DECISIONS.md](DECISIONS.md) for the canonicalization procedure, parser choices,
+[docs/DECISIONS.md](docs/DECISIONS.md) for the canonicalization procedure, parser choices,
 the 3.1.1 label normalizations and the 5.0 label reconciliation.
 
 ## Benchmarking
@@ -512,7 +512,7 @@ uv run mqtt-spec-bench-report --plan benchmarks/plans/release-1.toml
 [full report](benchmarks/results/2026-10-21-independent-release-2.md)). These are the
 same 165 sealed test questions as release 1, with the same five models, two epochs
 and judge panel. This time the server is commit 10402f0, which adds excerpt notes
-and capped fetching (see [DECISIONS.md](DECISIONS.md)). The run was made under the
+and capped fetching (see [docs/DECISIONS.md](docs/DECISIONS.md)). The run was made under the
 committed plan [release-2](benchmarks/plans/release-2.toml). Pooled over models:
 
 | condition | quality | pass rate | fact recall | tokens/answer | price-weighted tokens/answer | model calls |
@@ -589,7 +589,7 @@ has the earlier runs, including `none` and the previous search design.
 
 ## Development
 
-[STATUS.md](STATUS.md) summarizes where the project stands, its known gaps and the
+[docs/STATUS.md](docs/STATUS.md) summarizes where the project stands, its known gaps and the
 planned next steps.
 
 ```bash

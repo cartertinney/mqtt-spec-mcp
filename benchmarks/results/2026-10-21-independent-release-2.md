@@ -48,7 +48,7 @@ is told; ranking and excerpts are unchanged:
     never helped. The facts the GPT and Grok models' fetches surfaced had also been
     answered correctly when they rarely fetched.
 
-The dev passes are recorded in [DECISIONS.md](../../DECISIONS.md).
+The dev passes are recorded in [docs/DECISIONS.md](../../docs/DECISIONS.md).
 
 ## Release 1 against release 2 (same sealed questions)
 

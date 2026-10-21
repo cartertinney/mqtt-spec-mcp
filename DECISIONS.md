@@ -300,7 +300,15 @@ appear in the body.
       (claude-haiku-5.5 from 20% of answers to 8%), and theirs had been the most
       productive. That phrase is dropped; the caps stay.
     - Grok is not the token problem on its own: without it, `mcp` saved 34%,
-      3.5% and 32% of `grep`'s tokens in passes 1, 3 and 4. With no match
+      3.5% and 32% of `grep`'s tokens in passes 1, 3 and 4.
+  - With the caps kept and that phrase dropped (dev pass 5), claude-haiku-5.5
+    fetched in 18% of answers again.
+    - Against `grep`: quality +1.6 points (CI −0.5 to +3.5), complex questions
+      +1.7, simple questions +0.5, pass rate +10.0 (CI +5.5 to +14.5).
+    - Tokens: 22% fewer (CI 15% to 28%; 18% without Grok).
+    - Passes 4 and 5 can't be told apart on quality from one dev epoch. The rule,
+      recorded before pass 5's results, was to ship pass 5's wording unless it
+      saved under 20% of tokens, so release-2 tests it. With no match
   it says nothing matched in this version, that this is not proof of absence, and
   that it says nothing about any other version.
 - The tools advertise only the parameters agents used in 803 benchmark runs

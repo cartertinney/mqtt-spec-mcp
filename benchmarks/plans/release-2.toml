@@ -1,0 +1,61 @@
+# Analysis plan: commit it before the run it governs; edit nothing after.
+name = "release-2"
+description = "Release 2: the server at 10402f0 (excerpt notes, fetch only before an absence or no-exception claim, at most one fetch and one repeat search per version) on the sealed test split of the independent corpus 1.1.0, the split release-1 used (only its aggregates were seen). Same five models, mcp and grep side by side, two epochs, judged by the claude-sonnet-5 and gpt-5.6-sol panel. The claim: on complex questions (synthesis, scenario, edge) mcp gives better answers than grep; on simple ones (lookup, rule) it is no more than 1 point worse; overall it uses fewer tokens."
+corpus = "independent"
+corpus_version = "1.1.0"
+manifest_sha256 = "a8fdcb21f5d69eb0679b4feaa2c34a60e26a41135a2b81880e9524fd8c78ba15"
+split = "test"
+models = ["claude-sonnet-5.5", "gpt-6.1-sol", "claude-haiku-5.5", "gpt-6-luna", "grok-4.7"]
+conditions = ["mcp", "grep"]
+epochs = 2
+seed = 20261102
+timeout = 240.0
+server_commit = "10402f08d89089b1cf40dddc76dd7c9a1f22b4ee"  # for reference
+
+# What each condition gives the model; the runner refuses other code.
+[hashes]
+base = "2674c0db4400e325"
+
+[hashes.conditions.mcp]
+prompt = "056aa53747c307fa"
+reference = "f99b05703fd71ed9"
+
+[hashes.conditions.grep]
+prompt = "aefc6f3b951d87f7"
+reference = "0407e7b8030d9ba0"
+
+[judge]
+models = ["claude-sonnet-5", "gpt-5.6-sol"]
+prompt_version = "2"
+prompt_hash = "204e3c5ddeafe39d"
+scoring_version = "2.0"
+
+# Decision rule: every check must pass. A check compares the 95% CI's
+# lower bound with ci_low_above, pooled over models or for each model,
+# over all questions or those of the check's kinds.
+# Metrics: quality_delta, pass_delta, token_reduction, weighted_token_reduction, speedup.
+[analysis]
+baseline = "grep"
+candidate = "mcp"
+
+# Chosen 2026-10-20 before any release-2 answer existed (the owner's thesis: the
+# value of the tool is on questions that need several sections).
+[[analysis.checks]]
+name = "better answers than grep on complex questions"
+metric = "quality_delta"
+scope = "pooled"
+kinds = ["synthesis", "scenario", "edge"]
+ci_low_above = 0.0
+
+[[analysis.checks]]
+name = "no more than 1 point worse than grep on simple questions"
+metric = "quality_delta"
+scope = "pooled"
+kinds = ["lookup", "rule"]
+ci_low_above = -0.01
+
+[[analysis.checks]]
+name = "fewer tokens than grep"
+metric = "token_reduction"
+scope = "pooled"
+ci_low_above = 0.0

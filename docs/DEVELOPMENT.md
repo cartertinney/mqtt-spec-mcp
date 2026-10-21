@@ -98,36 +98,43 @@ no PyPI credentials, and each upload carries signed build attestations.
 
 Its build job checks that the release tag matches the package version, runs the
 tests, builds the sdist and wheel, and checks them with `twine check` and the
-installed-wheel smoke test before saving them for upload. Only the publish jobs
-can request a token, and they upload only those saved files.
+installed-wheel smoke test before saving them for upload. Only the publish job
+can request a token, and it uploads only those saved files.
 
-### One-time setup
+### Setup
 
-1. On PyPI, open Account settings → Publishing and add a pending GitHub
-   publisher with:
+These are already configured; recreate them if they are lost.
+
+1. On PyPI, Account settings → Publishing has a GitHub trusted publisher with:
    - PyPI project name: `mqtt-spec-mcp`
    - Owner: `cartertinney`
    - Repository name: `mqtt-spec-mcp`
    - Workflow name: `release.yml`
    - Environment name: `pypi`
 
-   A pending publisher does not reserve the name until its first upload.
-2. On [TestPyPI](https://test.pypi.org/), add the same publisher with
-   environment name `testpypi`.
-3. In this repository's Settings → Environments, create `pypi` with yourself as a
-   required reviewer, and create `testpypi`.
+   Until the first upload, this is a pending publisher, which does not reserve
+   the project name.
+2. In this repository's Settings → Environments, the `pypi` environment requires
+   a maintainer's approval and accepts only tags matching `v*`.
 
 ### Each release
 
 1. Bump the version with `uv version --bump patch` (or `minor`), which updates
    `pyproject.toml` and `uv.lock`. Commit the change to `main` and wait for CI.
-2. Optionally, run the Release workflow from the Actions tab. It uploads the
-   current version to TestPyPI; each version can be uploaded only once there.
+2. Optionally, run the Release workflow from the Actions tab: it builds and checks
+   the distributions without publishing.
 3. Publish a GitHub release whose tag is `v` plus the version (for example
    `v0.2.0`), using generated release notes:
    `gh release create v0.2.0 --generate-notes`.
-4. Approve the `pypi` deployment when the workflow asks, then confirm the release
-   at <https://pypi.org/p/mqtt-spec-mcp>.
+4. Open the workflow run from the Actions tab, choose **Review deployments**, and
+   approve `pypi`. Then confirm the release at <https://pypi.org/p/mqtt-spec-mcp>.
+
+PyPI accepts each version number only once, even after deletion, but a rejected
+upload publishes nothing. If the upload fails because of a PyPI or GitHub
+setting, fix the setting and re-run the failed job. If it fails because of the
+package itself, delete the GitHub release and its tag, fix `main`, and release
+the same version again. A version that reached PyPI can't be replaced; fix it in
+the next version.
 
 ## Before publishing
 

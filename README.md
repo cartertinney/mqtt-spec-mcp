@@ -15,45 +15,42 @@ The server retrieves evidence; the agent does the reasoning. OASIS publications
 remain authoritative, and retrieved excerpts are not a guarantee of a correct
 answer.
 
-## Install and run
+## Setup
 
-Requires Python 3.10 or newer. The simplest way to run the server is with
-[uv](https://docs.astral.sh/uv/):
+Your MCP client starts the server on your machine and talks to it over stdio.
+There is no separate install step: configure the client to run
+`uvx mqtt-spec-mcp`, and [uv](https://docs.astral.sh/uv/) downloads the package
+from PyPI the first time, caches it, and starts it. uv also fetches a compatible
+Python (3.10 or newer) if you don't have one.
+
+1. [Install uv](https://docs.astral.sh/uv/getting-started/installation/).
+2. Add the server to your client, as shown below. The server itself needs no
+   environment variables, configuration files, flags, or network access.
+
+The server is also listed in the [MCP Registry](https://registry.modelcontextprotocol.io)
+as `io.github.cartertinney/mqtt-spec-mcp`, for clients that install from it.
+
+### Claude Code, Codex, GitHub Copilot CLI, and Gemini CLI
+
+Each of these adds the server for all your projects with one command:
 
 ```bash
-uvx mqtt-spec-mcp
+claude mcp add --scope user mqtt-spec -- uvx mqtt-spec-mcp   # Claude Code
+codex mcp add mqtt-spec -- uvx mqtt-spec-mcp                 # OpenAI Codex CLI and IDE extension
+copilot mcp add mqtt-spec -- uvx mqtt-spec-mcp               # GitHub Copilot CLI
+gemini mcp add --scope user mqtt-spec uvx mqtt-spec-mcp      # Gemini CLI
 ```
 
-`uvx` installs the package from PyPI into a cached, isolated environment and
-starts it. This starts a stdio MCP server, not an interactive command prompt;
-MCP clients launch it for you, as shown below.
+### VS Code (GitHub Copilot)
 
-You can also install it with pipx or pip and run the `mqtt-spec-mcp` command:
+Add the server to your user profile from a terminal:
 
 ```bash
-pipx install mqtt-spec-mcp    # or: pip install mqtt-spec-mcp
-mqtt-spec-mcp
+code --add-mcp '{"name":"mqtt-spec","type":"stdio","command":"uvx","args":["mqtt-spec-mcp"]}'
 ```
 
-The server needs no environment variables, configuration files, flags, or network
-access.
-
-## Connect a client
-
-For Claude Desktop, Claude Code, Cursor, and clients using `mcpServers`:
-
-```json
-{
-  "mcpServers": {
-    "mqtt-spec": {
-      "command": "uvx",
-      "args": ["mqtt-spec-mcp"]
-    }
-  }
-}
-```
-
-For VS Code, put this in `.vscode/mcp.json` or your user MCP configuration:
+Or run **MCP: Add Server** from the Command Palette, or add it to one project's
+`.vscode/mcp.json`:
 
 ```json
 {
@@ -67,13 +64,54 @@ For VS Code, put this in `.vscode/mcp.json` or your user MCP configuration:
 }
 ```
 
-If the client can't find `uvx`, which is common for desktop apps that don't use
-your shell's `PATH`, give its absolute path (`which uvx` prints it).
+### Claude Desktop, Cursor, and other clients
 
-`uvx` keeps using the version it has cached. To upgrade, run
-`uvx mqtt-spec-mcp@latest` once. To pin a version, put `mqtt-spec-mcp@0.1.0` (or
-another release) in `args`. After upgrading, restart the server and start a new
-conversation so the client drops cached tool schemas.
+Most other clients read the same `mcpServers` entry:
+
+```json
+{
+  "mcpServers": {
+    "mqtt-spec": {
+      "command": "uvx",
+      "args": ["mqtt-spec-mcp"]
+    }
+  }
+}
+```
+
+- **Claude Desktop:** Settings → Developer → Edit Config opens
+  `claude_desktop_config.json`. Quit and reopen Claude after saving.
+- **Cursor:** use `~/.cursor/mcp.json` for all projects, or `.cursor/mcp.json` in
+  one project.
+- **Zed:** put the same entry under `context_servers` in its settings file.
+
+### ChatGPT and the OpenAI Agents SDK
+
+ChatGPT connects only to remote MCP servers over HTTPS, so it can't start this
+local server; use the Codex CLI or IDE extension instead (above). In an agent
+built with the [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/mcp/),
+connect with `MCPServerStdio(params={"command": "uvx", "args": ["mqtt-spec-mcp"]})`.
+
+### Without uv
+
+Install the package with `pipx install mqtt-spec-mcp`, or with
+`pip install mqtt-spec-mcp` in a Python 3.10+ environment. Then configure your
+client to run the command `mqtt-spec-mcp`, with no arguments, instead of
+`uvx mqtt-spec-mcp`.
+
+### Troubleshooting and upgrades
+
+- **The client can't find `uvx`.** Desktop apps often don't see your shell's
+  `PATH`. Use the absolute path printed by `which uvx` (macOS and Linux) or
+  `where uvx` (Windows).
+- **The first start times out.** The first launch downloads the package, which
+  can take a few seconds. Download it ahead of time with
+  `uvx --from mqtt-spec-mcp python -c pass`.
+- **Upgrading.** `uvx` keeps using the version it first downloaded. To update it,
+  run `uvx --from mqtt-spec-mcp@latest python -c pass`, then restart the server
+  and start a new conversation so the client drops cached tool schemas. To pin a
+  version, use `mqtt-spec-mcp@0.1.0` in place of `mqtt-spec-mcp` in the client's
+  arguments.
 
 ## Tools
 

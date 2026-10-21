@@ -15,10 +15,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10", "3.12", "3.13"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --locked
@@ -29,9 +31,11 @@ jobs:
       - run: uv build
       - name: Smoke-test installed wheel outside the checkout
         shell: bash
+        env:
+          PYTHON_VERSION: ${{ matrix.python }}
         run: |
           smoke_dir=$(mktemp -d)
-          uv venv --python "${{ matrix.python }}" "$smoke_dir/venv"
+          uv venv --python "$PYTHON_VERSION" "$smoke_dir/venv"
           uv pip install --python "$smoke_dir/venv/bin/python" dist/*.whl
           cd "$smoke_dir"
           "$smoke_dir/venv/bin/python" "$GITHUB_WORKSPACE/scripts/smoke_wheel.py"
@@ -40,8 +44,10 @@ jobs:
     name: regression benchmarks (Python 3.12)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.12"
       - run: uv sync --locked --group benchmark

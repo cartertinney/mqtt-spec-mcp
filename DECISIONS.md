@@ -308,7 +308,14 @@ appear in the body.
     - Tokens: 22% fewer (CI 15% to 28%; 18% without Grok).
     - Passes 4 and 5 can't be told apart on quality from one dev epoch. The rule,
       recorded before pass 5's results, was to ship pass 5's wording unless it
-      saved under 20% of tokens, so release-2 tests it. With no match
+      saved under 20% of tokens, so release-2 tests it.
+  - Release 2 ran that wording on the sealed test split (the 165 questions of
+    release 1, five models, two epochs) and passed its plan.
+    - Complex questions: +1.1 points against `grep` (CI +0.2 to +2.1), against
+      −0.4 in release 1. Simple questions: +0.1 (CI −0.7 to +0.9).
+    - Tokens: 23% fewer (CI 19% to 27%), against 39% in release 1.
+    - `mcp` errors per answer fell from 0.030 to 0.023 (`grep`: 0.019).
+    - See benchmarks/results/2026-10-21-independent-release-2.md. With no match
   it says nothing matched in this version, that this is not proof of absence, and
   that it says nothing about any other version.
 - The tools advertise only the parameters agents used in 803 benchmark runs

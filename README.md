@@ -494,6 +494,30 @@ uv run mqtt-spec-bench-report --plan benchmarks/plans/release-1.toml
 
 ### Latest results
 
+**Independent corpus, release 2** (2026-10-21,
+[full report](benchmarks/results/2026-10-21-independent-release-2.md)). These are the
+same 165 sealed test questions as release 1, with the same five models, two epochs
+and judge panel. This time the server is commit 10402f0, which adds excerpt notes
+and capped fetching (see [DECISIONS.md](DECISIONS.md)). The run was made under the
+committed plan [release-2](benchmarks/plans/release-2.toml). Pooled over models:
+
+| condition | quality | pass rate | fact recall | tokens/answer | price-weighted tokens/answer | model calls |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `mcp` | 0.954 | 82.1% | 0.963 | 13,557 | 12,969 | 2.65 |
+| `grep` | 0.944 | 75.6% | 0.956 | 17,684 | 13,339 | 4.19 |
+
+The plan's decision was **PASS**:
+- On complex questions (synthesis, scenario, edge) `mcp` gave better answers than
+  `grep`: +1.1 points (95% CI +0.2 to +2.1).
+- On simple ones (lookup, rule) it was level: +0.1 (CI −0.7 to +0.9).
+- It used 23% fewer tokens (CI 19% to 27%).
+- Over all questions it was +0.9 points (CI +0.2 to +1.7), with a 6.4-point higher
+  pass rate.
+- It led most on questions comparing the two versions (+1.7, CI +0.4 to +3.2).
+- Once each model's prices are applied the two conditions cost about the same
+  (`mcp` 2.8% cheaper, CI −0.5% to +5.8%). For claude-sonnet-5.5, `mcp` costs 32%
+  more.
+
 **Independent corpus, release 1** (2026-10-20,
 [full report](benchmarks/results/2026-10-20-independent-release-1.md)). The 165
 sealed test questions of the independently written corpus were answered by five

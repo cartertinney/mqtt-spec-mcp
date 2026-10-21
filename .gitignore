@@ -11,6 +11,10 @@ build/
 htmlcov/
 # Local agent settings (Claude Code)
 .claude/
-# Benchmark run outputs (commit curated reports deliberately, not raw runs)
+# Private evaluation outputs (raw runs and logs); never commit them here
 benchmarks/runs/
 logs/
+.DS_Store
+.env
+.env.*
+!.env.example

@@ -1,6 +1,6 @@
 """Microbenchmark: context sizes, schema size, response sizes and latencies.
 
-Token counts use the ``o200k_base`` tokenizer from ``tiktoken`` (benchmark extra)
+Token counts use the ``o200k_base`` tokenizer from ``tiktoken`` (benchmark group)
 and are labelled as such; they approximate, not equal, any model's billing.
 """
 
@@ -18,9 +18,11 @@ import anyio
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 
+from mqtt_spec_mcp.engine import SpecEngine
+from mqtt_spec_mcp.loader import load_index
 from mqtt_spec_mcp.server import INSTRUCTIONS, TOOLS, MqttSpecService
+from mqtt_spec_mcp.versions import VersionId
 
-from .conditions import render_spec_text
 from .retrieval import percentile
 
 TOKENIZER = "o200k_base"
@@ -57,9 +59,21 @@ REPRESENTATIVE_CALLS: list[tuple[str, str, dict[str, Any]]] = [
 ]
 
 
+def render_spec_text(version: VersionId) -> str:
+    """Every section of one version as plain text: the size of the whole
+    specification an agent would otherwise read."""
+    engine = SpecEngine(load_index(version))
+    parts = [f"# {engine.pin.title} ({engine.pin.source_url})"]
+    for info in engine.ordered:
+        parts.append(f"{'#' * min(6, info.section.level + 1)} {info.id} {info.title}")
+        if info.body:
+            parts.append(info.body)
+    return "\n".join(parts)
+
+
 def _token_counter() -> Any:
     try:
-        import tiktoken  # noqa: PLC0415 - optional benchmark extra
+        import tiktoken  # noqa: PLC0415 - optional tokenizer
     except ImportError:  # pragma: no cover - optional dependency
         return None
     return tiktoken.get_encoding(TOKENIZER)

@@ -1,6 +1,6 @@
 """Benchmark case corpus: strict schema, loading and corpus-level validation.
 
-Run ``python -m mqtt_spec_mcp.benchmark.cases`` to validate the bundled corpus, or
+Run ``python -m benchmarks.cases`` to validate the bundled corpus, or
 ``... cases path/to/file.jsonl --partial`` while authoring a subset.
 """
 
@@ -203,7 +203,7 @@ def parse_cases(lines: Iterable[str], source: str = "<cases>") -> list[Case]:
 
 
 def bundled_case_paths() -> list[Path]:
-    data = resources.files("mqtt_spec_mcp.benchmark").joinpath("data")
+    data = resources.files("benchmarks").joinpath("data")
     return [Path(str(data.joinpath(name))) for name in CASE_FILES.values()]
 
 

@@ -1,4 +1,5 @@
-"""Benchmark harness unit tests (no model, no network)."""
+"""Bundled-case validator, deterministic scorer and retrieval benchmark tests
+(no model, no network)."""
 
 from __future__ import annotations
 
@@ -8,17 +9,8 @@ from typing import Any
 
 import pytest
 
-from mqtt_spec_mcp.benchmark import conditions, report
-from mqtt_spec_mcp.benchmark.cases import Case, load_cases, parse_cases
-from mqtt_spec_mcp.benchmark.runs import (
-    RunRecord,
-    Usage,
-    append_record,
-    build_plan,
-    completed_keys,
-    load_records,
-)
-from mqtt_spec_mcp.benchmark.scorer import (
+from benchmarks.cases import Case, load_cases, parse_cases
+from benchmarks.scorer import (
     SCORER_VERSION,
     cited_sections,
     matches_fact,
@@ -218,220 +210,6 @@ def test_load_cases_rejects_duplicate_ids(tmp_path: Path) -> None:
         make_case(category="trivia")
 
 
-def test_plan_is_seeded_and_rotates_conditions() -> None:
-    cases = [make_case(id=f"case-n{i}") for i in range(4)]
-    plan = build_plan(cases, ["none", "full_spec", "grep", "mcp"], epochs=2, seed=3)
-    assert plan == build_plan(
-        cases, ["none", "full_spec", "grep", "mcp"], epochs=2, seed=3
-    )
-    assert len(plan) == 32
-    firsts = [plan[i].condition for i in range(0, 16, 4)]
-    assert len(set(firsts)) == 4
-    other = build_plan(cases, ["none", "full_spec", "grep", "mcp"], epochs=2, seed=4)
-    assert [p.case_id for p in other] != [p.case_id for p in plan]
-
-
-def test_grep_and_read_tools() -> None:
-    grep, read = (t.handler for t in conditions.grep_tools(["5.0"]))
-    text, error = grep({"pattern": "Will Delay Interval", "max_results": 3})
-    assert not error
-    assert text.count("\n") >= 2
-    first_line = int(text.split(":")[0])
-    page, error = read({"start_line": first_line, "max_lines": 80})
-    assert not error
-    assert page.splitlines()[-1].startswith("next_line:")
-    assert len(page.splitlines()) == 81
-    assert read({"start_line": 1, "max_lines": 81})[1]
-    assert grep({"pattern": "("})[0]  # invalid regex falls back to literal
-
-
-def test_grep_text_holds_only_the_case_versions() -> None:
-    grep_311, _ = (t.handler for t in conditions.grep_tools(["3.1.1"]))
-    assert "No matching lines" in grep_311({"pattern": "Session Expiry Interval"})[0]
-    grep_both, _ = (t.handler for t in conditions.grep_tools(["3.1.1", "5.0"]))
-    headings, _ = grep_both({"pattern": "^# MQTT Version"})
-    assert "MQTT Version 3.1.1" in headings
-    assert "MQTT Version 5.0" in headings
-
-
-def test_tool_budget_is_enforced() -> None:
-    session = conditions.ToolSession(conditions.tools_for("mcp", ["5.0"]), max_calls=1)
-    args = {"version": "5.0", "kind": "packet", "query": "PUBACK"}
-    assert not session.invoke("mqtt_spec_lookup", args)[1]
-    text, error = session.invoke("mqtt_spec_lookup", args)
-    assert error
-    assert "budget" in text
-
-
-@pytest.mark.parametrize(("loaded", "other"), [("5.0", "3.1.1"), ("3.1.1", "5.0")])
-def test_mcp_condition_is_pinned_to_case_versions(loaded: str, other: str) -> None:
-    session = conditions.ToolSession(conditions.tools_for("mcp", [loaded]))
-    text, error = session.invoke("mqtt_spec_outline", {"version": other})
-    assert error
-    assert "not loaded" in text
-    assert not session.invoke("mqtt_spec_outline", {"version": loaded})[1]
-    both = conditions.ToolSession(conditions.tools_for("mcp", ["3.1.1", "5.0"]))
-    assert not both.invoke("mqtt_spec_outline", {"version": other})[1]
-
-
-def test_system_prompts_share_base() -> None:
-    base = conditions.BASE_PROMPT.format(word_limit=120)
-    for versions in (["5.0"], ["3.1.1"], ["3.1.1", "5.0"]):
-        prompts = {
-            c: conditions.system_prompt(c, 120, versions) for c in conditions.CONDITIONS
-        }
-        assert all(p.startswith(base) for p in prompts.values())
-        assert len(prompts["mcp"]) < 5_000
-    only_50 = conditions.system_prompt("full_spec", 120, ["5.0"])
-    assert "3.1.2.4 Clean Start" in only_50
-    assert "MQTT Version 3.1.1" not in only_50.split("SPECIFICATION")[1]
-    both = conditions.system_prompt("full_spec", 120, ["3.1.1", "5.0"])
-    assert "3.1.2.4 Clean Session" in both
-    assert "3.1.2.4 Clean Start" in both
-
-
-def test_user_message_labels_every_question_with_its_versions() -> None:
-    assert conditions.user_message("Q?", ["3.1.1"]) == "[MQTT 3.1.1] Q?"
-    assert conditions.user_message("Older vs newer?", ["3.1.1", "5.0"]) == (
-        "[MQTT 3.1.1 and 5.0] Older vs newer?"
-    )
-
-
-def test_case_hash_covers_the_comparison_label() -> None:
-    from mqtt_spec_mcp.benchmark.runs import case_hash, digest
-
-    single = make_case()
-    assert case_hash(single) == digest(
-        {
-            "case": (single.id, single.version, single.prompt, single.word_limit),
-            "format": 2,
-        }
-    )
-    both = make_case(version="both")
-    plain = digest(
-        {"case": (both.id, both.version, both.prompt, both.word_limit), "format": 2}
-    )
-    assert case_hash(both) != plain
-
-
-def _record(
-    condition: str,
-    case_id: str,
-    quality: float,
-    tokens: int,
-    latency: float,
-    *,
-    version: str = "5.0",
-) -> RunRecord:
-    return RunRecord(
-        runner="test",
-        model="m",
-        condition=condition,
-        case_id=case_id,
-        version=version,
-        epoch=0,
-        seed=1,
-        answer="a",
-        latency_s=latency,
-        usage=Usage(input_tokens=tokens),
-        hashes={"base": "b", "prompt": condition, "reference": "r", "case": case_id},
-        score={"quality": quality, "passed": quality == 1.0, "concision": 1.0},
-    )
-
-
-def test_report_pairs_bootstrap_and_gates(tmp_path: Path) -> None:
-    records = []
-    for i in range(20):
-        records.append(_record("full_spec", f"c{i}", 1.0, 60_000, 10.0))
-        records.append(_record("mcp", f"c{i}", 1.0 if i % 10 else 0.9, 6_000, 5.0))
-    comparisons = report.compare(records, "full_spec", "mcp")
-    row = comparisons[0]
-    assert row["pairs"] == 20
-    assert row["token_reduction"]["point"] == pytest.approx(0.9)
-    assert row["speedup"]["point"] == pytest.approx(2.0)
-    low, high = row["quality_delta"]["ci95"]
-    assert low <= row["quality_delta"]["point"] <= high
-    assert report.compare(records, "full_spec", "mcp") == comparisons  # deterministic
-    path = tmp_path / "runs.jsonl"
-    for record in records:
-        append_record(path, record)
-    assert len(load_records([path])) == 40
-    assert len(completed_keys(path)) == 40
-    expected = {(r.condition, r.case_id): r.hashes for r in records}
-    assert len(completed_keys(path, expected)) == 40
-    expected[("mcp", "c0")] = {**expected[("mcp", "c0")], "reference": "changed"}
-    assert ("m", "mcp", "c0", 0) not in completed_keys(path, expected)
-    assert len(completed_keys(path, expected)) == 39
-    assert (
-        report.main(
-            [str(path), "--gate-token-reduction", "0.5", "--gate-speedup", "1.2"]
-        )
-        == 0
-    )
-    assert report.main([str(path), "--gate-speedup", "3"]) == 1
-
-
-def test_report_epoch_filter(tmp_path: Path) -> None:
-    path = tmp_path / "runs.jsonl"
-    for epoch in (0, 1):
-        for condition in ("full_spec", "mcp"):
-            record = _record(condition, "c0", 1.0, 1_000, 1.0)
-            append_record(path, record.model_copy(update={"epoch": epoch}))
-    out = tmp_path / "report.json"
-    assert report.main([str(path), "--epoch", "1", "--json-output", str(out)]) == 0
-    summary = json.loads(out.read_text("utf-8"))["summary"]
-    assert {row["runs"] for row in summary} == {1}
-    assert report.main([str(path), "--epoch", "7"]) == 1
-
-
-def test_report_refuses_mixed_hashes(tmp_path: Path) -> None:
-    a = _record("mcp", "c1", 1.0, 10, 1.0)
-    b = _record("mcp", "c2", 1.0, 10, 1.0)
-    b.hashes = {**b.hashes, "reference": "different server"}
-    path = tmp_path / "mixed.jsonl"
-    append_record(path, a)
-    append_record(path, b)
-    assert report.main([str(path)]) == 1
-    with pytest.raises(report.ReportError, match="mcp: different reference"):
-        report.check_compatible([a, b])
-    asked = _record("full_spec", "c1", 1.0, 10, 1.0)
-    asked.hashes = {**asked.hashes, "case": "changed question"}
-    with pytest.raises(report.ReportError, match="questions changed"):
-        report.check_compatible([a, asked])
-
-
-def test_report_allows_rerunning_one_condition() -> None:
-    old = [_record("full_spec", f"c{i}", 1.0, 100, 2.0) for i in range(3)]
-    new = [_record("mcp", f"c{i}", 1.0, 10, 1.0) for i in range(3)]
-    for record in new:
-        record.hashes = {**record.hashes, "reference": "fixed server"}
-    report.check_compatible(old + new)
-
-
-def test_latest_records_prefer_successful_retries() -> None:
-    from mqtt_spec_mcp.benchmark.runs import latest_records
-
-    failed = _record("mcp", "c1", 0.0, 0, 0.0)
-    failed.error = "TimeoutError"
-    retried = _record("mcp", "c1", 1.0, 10, 1.0)
-    later_failure = _record("mcp", "c1", 0.0, 0, 0.0)
-    later_failure.error = "RateLimit"
-    assert latest_records([failed, retried, later_failure]) == [retried]
-
-
-def test_report_breaks_down_by_version() -> None:
-    records = [
-        _record("full_spec", "a", 1.0, 100, 2.0, version="3.1.1"),
-        _record("mcp", "a", 0.0, 10, 1.0, version="3.1.1"),
-        _record("full_spec", "b", 1.0, 100, 2.0, version="5.0"),
-        _record("mcp", "b", 1.0, 10, 1.0, version="5.0"),
-    ]
-    rows = {(r["condition"], r["version"]): r for r in report.summarize(records, True)}
-    assert rows[("mcp", "3.1.1")]["quality"] == 0.0
-    assert rows[("mcp", "5.0")]["quality"] == 1.0
-    assert report.compare(records, "full_spec", "mcp", "3.1.1")[0]["pairs"] == 1
-
-
 def test_forbidden_claim_negated_inside_match_is_not_a_violation() -> None:
     case = make_case(
         forbidden=[
@@ -450,7 +228,7 @@ def test_forbidden_claim_negated_inside_match_is_not_a_violation() -> None:
 
 
 def test_bundled_corpus_is_valid() -> None:
-    from mqtt_spec_mcp.benchmark.cases import (
+    from benchmarks.cases import (
         CATEGORY_TARGETS,
         load_cases,
         validate_cases,
@@ -463,8 +241,8 @@ def test_bundled_corpus_is_valid() -> None:
 
 
 def test_retrieval_benchmark_runs() -> None:
-    from mqtt_spec_mcp.benchmark.cases import load_cases
-    from mqtt_spec_mcp.benchmark.retrieval import evaluate
+    from benchmarks.cases import load_cases
+    from benchmarks.retrieval import evaluate
 
     result = evaluate(load_cases())
     assert result["lookup_success"] == 1.0

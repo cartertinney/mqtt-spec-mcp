@@ -862,14 +862,14 @@ def _result(
     if sections:
         next_step = (
             "State each rule here that bears on the question, with its "
-            "MUST/SHOULD/MAY and conditions, and cite its section; most answers need "
-            "nothing more. Sections without (excerpt: ...) are complete. Only if your "
-            "answer would say MQTT does not require, define or mention something, "
-            "leaves it open or optional, or that a rule has no exception, and the "
-            "section that would decide it is marked (excerpt: ...) or not listed, get "
-            f"that one section with mqtt_spec_get (version='{v}'): at most one section "
-            f"per version. Search MQTT {v} again at most once, only for a part of the "
-            "question these sections do not cover (to compare versions, search MQTT "
+            "MUST/SHOULD/MAY and conditions, and cite its section. Sections without "
+            "(excerpt: ...) are complete. If your answer would say MQTT does not "
+            "require, define or mention something, leaves it open or optional, or "
+            "that a rule has no exception, and the section that would decide it is "
+            "marked (excerpt: ...) or not listed, first get that section with "
+            f"mqtt_spec_get (version='{v}'): at most one section per version. Search "
+            f"MQTT {v} again at most once, only for a part of the question these "
+            f"sections do not cover (to compare versions, search MQTT "
             f"{OTHER_VERSION[v]} once)."
         )
     else:

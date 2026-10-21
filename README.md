@@ -185,7 +185,7 @@ Followed by the Two Byte Integer representing the Topic Alias Maximum value. ...
 
 [five more sections]
 
-State each rule here that bears on the question, with its MUST/SHOULD/MAY and conditions, and cite its section; most answers need nothing more. Sections without (excerpt: ...) are complete. Only if your answer would say MQTT does not require, define or mention something, leaves it open or optional, or that a rule has no exception, and the section that would decide it is marked (excerpt: ...) or not listed, get that one section with mqtt_spec_get (version='5.0'): at most one section per version. Search MQTT 5.0 again at most once, only for a part of the question these sections do not cover (to compare versions, search MQTT 3.1.1 once).
+State each rule here that bears on the question, with its MUST/SHOULD/MAY and conditions, and cite its section. Sections without (excerpt: ...) are complete. If your answer would say MQTT does not require, define or mention something, leaves it open or optional, or that a rule has no exception, and the section that would decide it is marked (excerpt: ...) or not listed, first get that section with mqtt_spec_get (version='5.0'): at most one section per version. Search MQTT 5.0 again at most once, only for a part of the question these sections do not cover (to compare versions, search MQTT 3.1.1 once).
 ```
 
 ### `mqtt_spec_get`
@@ -274,12 +274,12 @@ The server sends these instructions to clients. In short:
 2. Answer from the results: state each rule that bears on the question with its
    MUST/SHOULD/MAY and conditions, and cite its section.
 3. A result marked `(excerpt: ...)` shows part of its section; unmarked results are
-   complete. Get a section with `mqtt_spec_get` only if your answer would say MQTT
-   does not require, define or mention something, leaves it open or optional, or
-   that a rule has no exception, and the section that would decide it is excerpted
-   or not listed: at most one section per version. Search again at most once, only
-   for a part of the question the results do not cover. Use `mqtt_spec_outline`
-   only to browse.
+   complete. If your answer would say MQTT does not require, define or mention
+   something, leaves it open or optional, or that a rule has no exception, and the
+   section that would decide it is excerpted or not listed, first get that section
+   with `mqtt_spec_get`: at most one section per version. Search again at most
+   once, only for a part of the question the results do not cover. Use
+   `mqtt_spec_outline` only to browse.
 
 ## Index provenance and regeneration
 

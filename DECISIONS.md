@@ -225,12 +225,12 @@ appear in the body.
   that split. On lookup and normative cases it split 10 of 66 searches and scored
   as v8 did.
 - The pack ends with the next step: state each rule that bears on the question,
-  with its MUST/SHOULD/MAY and conditions, and cite its section; most answers need
-  nothing more. Unmarked sections are complete. Only if the answer would say MQTT
-  does not require, define or mention something, leaves it open or optional, or
-  that a rule has no exception, and the deciding section is excerpted or not
-  listed, get that one section: at most one per version. Search this version again
-  at most once, only for a part of the question the results don't cover (to compare versions, search
+  with its MUST/SHOULD/MAY and conditions, and cite its section. Unmarked sections
+  are complete. If the answer would say MQTT does not require, define or mention
+  something, leaves it open or optional, or that a rule has no exception, and the
+  deciding section is excerpted or not listed, first get that section: at most one
+  per version. Search this version again at most once, only for a part of the
+  question the results don't cover (to compare versions, search
   the other one once). The version-specific wording came after 11 of 60
   comparison runs consulted only one version (quality 0.80 to 0.88, against 0.92
   to 0.97 with both).
@@ -288,7 +288,19 @@ appear in the body.
     - unmarked sections are complete;
     - most answers need nothing more;
     - at most one fetch per version, under the same narrowed trigger;
-    - at most one repeat search per version. With no match
+    - at most one repeat search per version.
+  - That wording (dev pass 4) brought tokens back to 34% below `grep` (pass 3:
+    4%), with the pass rate +9.6 points and contradicted facts level (17, against
+    18 in pass 3 and 21 in pass 1).
+    - The quality lead on complex questions shrank from +2.3 to +1.1 points
+      (paired change −1.3, CI −4.0 to +1.1).
+    - The caps cut the GPT and Grok models' fetching (gpt-6-luna from 2.31
+      fetches per answer to 0.30).
+    - "Most answers need nothing more" also cut the Claude models' fetches
+      (claude-haiku-5.5 from 20% of answers to 8%), and theirs had been the most
+      productive. That phrase is dropped; the caps stay.
+    - Grok is not the token problem on its own: without it, `mcp` saved 34%,
+      3.5% and 32% of `grep`'s tokens in passes 1, 3 and 4. With no match
   it says nothing matched in this version, that this is not proof of absence, and
   that it says nothing about any other version.
 - The tools advertise only the parameters agents used in 803 benchmark runs

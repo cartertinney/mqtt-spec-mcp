@@ -1,5 +1,9 @@
 # Agent benchmark results: Claude Sonnet 5, 2026-10-19
 
+> Historical development evaluation, not held-out validation. The cases are
+> public, but the raw runs and the agent harness are private. Commands below
+> refer to tooling that has since moved; see the [benchmarks guide](../README.md).
+
 - **Runner:** GitHub Copilot SDK (`mqtt-spec-bench-copilot`), model `claude-sonnet-5`,
   one fresh session per run, seed 20261016.
 - **Corpus:** 200 cases (120 MQTT 5.0, 60 MQTT 3.1.1, 20 comparisons); see

@@ -1,5 +1,9 @@
 # Independent corpus, release 1: five models, `mcp` against `grep`
 
+> Historical evaluation: the corpus, raw runs, and evaluation harness are
+> private, so this report cannot be regenerated from this repository. Commands
+> below refer to tooling that has since moved; see the [benchmarks guide](../README.md).
+
 2026-10-20. Plan [release-1](../plans/release-1.toml) (`release-1@c5c6f6462fc2`), server
 commit 4bd4586, corpus `independent` 1.1.0.
 

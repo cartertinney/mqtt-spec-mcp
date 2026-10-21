@@ -3,6 +3,14 @@
 Design choices behind the server, the index generator and the benchmark. Each entry
 states the decision and, briefly, why.
 
+This log includes historical experiments, not just the current architecture.
+Model evaluations used private raw runs and, for independent evaluations, a
+private external corpus. The evaluation harness has since moved to a separate
+private repository, so these reports cannot be regenerated from this checkout.
+Current setup and commands are in [DEVELOPMENT.md](DEVELOPMENT.md) and the
+[benchmarks guide](../benchmarks/README.md); historical command names and paths
+below refer to the checkout at the time.
+
 ## Runtime and protocol
 
 - **Python + uv**, official MCP Python SDK 2.x low-level `Server`, stdio only.

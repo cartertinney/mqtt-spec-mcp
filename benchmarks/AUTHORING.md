@@ -1,6 +1,6 @@
 # Benchmark case authoring log
 
-The corpus has three files under `src/mqtt_spec_mcp/benchmark/data/`:
+The corpus has three files under [data/](data/):
 
 - `cases-v5.0.jsonl`: 120 MQTT 5.0 cases (35 lookup, 30 normative, 25 applied,
   15 synthesis, 15 edge);
@@ -9,10 +9,11 @@ The corpus has three files under `src/mqtt_spec_mcp/benchmark/data/`:
 - `cases-compare.jsonl`: 20 cases about how the two versions differ or agree.
 
 This log covers that bundled corpus, which was used to develop the server.
-Independent corpora (corpus format 2, schemas in [schema/](schema/)) are written
-outside this repository, from a brief that bars their authors from opening this
-server, its benchmark or any other MQTT question-answering tool; see the README's
-section on independent corpora.
+Independent corpora (corpus format 2) are written outside this repository, from a
+brief that bars their authors from opening this server, its benchmark or any
+other MQTT question-answering tool. The independent corpus, its evaluation
+harness and the raw runs are private and are not included in this repository; see
+[agent evaluations](README.md#agent-evaluations).
 
 ## Who and when
 

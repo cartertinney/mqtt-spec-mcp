@@ -1,5 +1,9 @@
 # Independent corpus, release 2: excerpt notes and capped fetching
 
+> Historical evaluation: the corpus, raw runs, and evaluation harness are
+> private, so this report cannot be regenerated from this repository. Commands
+> below refer to tooling that has since moved; see the [benchmarks guide](../README.md).
+
 2026-10-21. Plan [release-2](../plans/release-2.toml) (`release-2@a91f8a94e0b8`), server
 commit 10402f0, corpus `independent` 1.1.0 test split: the same 165 sealed questions
 as [release 1](2026-10-20-independent-release-1.md).

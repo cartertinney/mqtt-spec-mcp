@@ -1,8 +1,8 @@
 name: Release
 
-# Publishing a GitHub release uploads that version to PyPI. Running the
-# workflow manually uploads the current version to TestPyPI instead. Both
-# authenticate with PyPI trusted publishing; see docs/DEVELOPMENT.md.
+# Publishing a GitHub release uploads that version to PyPI with trusted
+# publishing; see docs/DEVELOPMENT.md. Running the workflow manually only builds
+# and checks the distributions, without publishing anything.
 on:
   release:
     types: [published]
@@ -54,25 +54,6 @@ jobs:
           name: dist
           path: dist/
           if-no-files-found: error
-
-  publish-testpypi:
-    name: Publish to TestPyPI
-    if: github.event_name == 'workflow_dispatch'
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/p/mqtt-spec-mcp
-    permissions:
-      id-token: write # trusted publishing: exchange an OIDC token for an upload token
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: dist
-          path: dist/
-      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
-        with:
-          repository-url: https://test.pypi.org/legacy/
 
   publish-pypi:
     name: Publish to PyPI

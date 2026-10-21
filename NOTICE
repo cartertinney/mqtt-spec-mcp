@@ -48,9 +48,10 @@ printed excerpt is kept verbatim, and MQTT-4.2-1 remains indexed as printed.
 Source publications
 -------------------
 
-MQTT Version 3.1.1. Edited by Andrew Banks and Rahul Gupta. OASIS Standard,
-29 October 2014.
-https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html
+MQTT Version 3.1.1 Plus Errata 01. Edited by Andrew Banks and Rahul Gupta.
+OASIS Standard Incorporating Approved Errata 01, 10 December 2015
+(original standard 29 October 2014).
+https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/errata01/os/mqtt-v3.1.1-errata01-os-complete.html
 
 MQTT Version 5.0. Edited by Andrew Banks, Ed Briggs, Ken Borgendale and Rahul
 Gupta. OASIS Standard, 07 March 2019.
@@ -59,10 +60,10 @@ https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html
 The notices of both publications are reproduced below as required by them.
 
 
-Notices of MQTT Version 3.1.1
------------------------------
+Notices of MQTT Version 3.1.1 Plus Errata 01
+-------------------------------------------
 
-Copyright © OASIS Open 2014. All Rights Reserved.
+Copyright © OASIS Open 2015. All Rights Reserved.
 
 All capitalized terms in the following text have the meanings assigned to them
 in the OASIS Intellectual Property Rights Policy (the "OASIS IPR Policy"). The

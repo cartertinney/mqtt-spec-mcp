@@ -3,17 +3,28 @@ name = "mqtt-spec-mcp"
 version = "0.1.0"
 description = "Offline MCP server for navigating the OASIS MQTT 3.1.1 and 5.0 specifications"
 readme = "README.md"
-license = "MIT"
+# The code is MIT; the bundled indexes and returned excerpts are OASIS
+# specification text, distributed under the OASIS notices in NOTICE.
+license = "MIT AND LicenseRef-OASIS-Notices"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Carter Tinney" }]
 keywords = ["mqtt", "mcp", "model-context-protocol", "specification", "oasis"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Communications",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Documentation",
+    "Typing :: Typed",
 ]
 requires-python = ">=3.10"
 dependencies = [
@@ -22,9 +33,13 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = "https://github.com/cartertinney/mqtt-spec-mcp"
+Documentation = "https://github.com/cartertinney/mqtt-spec-mcp/blob/main/docs/TOOLS.md"
 Repository = "https://github.com/cartertinney/mqtt-spec-mcp"
-Specification-3-1-1 = "https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/errata01/os/mqtt-v3.1.1-errata01-os-complete.html"
-Specification-5-0 = "https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html"
+Issues = "https://github.com/cartertinney/mqtt-spec-mcp/issues"
+Changelog = "https://github.com/cartertinney/mqtt-spec-mcp/releases"
+"MQTT 3.1.1 Specification" = "https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/errata01/os/mqtt-v3.1.1-errata01-os-complete.html"
+"MQTT 5.0 Specification" = "https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html"
 
 [project.scripts]
 mqtt-spec-mcp = "mqtt_spec_mcp.server:main"

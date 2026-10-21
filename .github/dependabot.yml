@@ -1,0 +1,28 @@
+# Keeps the SHA-pinned GitHub Actions and the uv lockfile current. Each
+# ecosystem gets at most one grouped pull request a month, and a new release
+# waits a week before Dependabot proposes it.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    # Keep the minimum versions published in pyproject.toml: move only the
+    # lockfile, unless a release falls outside an allowed range.
+    versioning-strategy: increase-if-necessary
+    groups:
+      python-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

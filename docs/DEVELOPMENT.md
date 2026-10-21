@@ -1,5 +1,22 @@
 # Development and release checks
 
+## Running from a checkout
+
+To run the server from source, for example while working on it:
+
+```bash
+git clone https://github.com/cartertinney/mqtt-spec-mcp.git
+cd mqtt-spec-mcp
+uv sync --locked
+uv run mqtt-spec-mcp
+```
+
+`uv run python -m mqtt_spec_mcp` also works. To point an MCP client at a checkout,
+use `"command": "uv"` with
+`"args": ["--directory", "/absolute/path/to/mqtt-spec-mcp", "run", "mqtt-spec-mcp"]`.
+This repository includes [VS Code](../.vscode/mcp.json) and
+[project-scoped](../.mcp.json) configurations that do this for the checkout itself.
+
 ## Local checks
 
 Requires uv and Python 3.10+. A clean checkout needs no model credentials,

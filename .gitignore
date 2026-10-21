@@ -9,6 +9,8 @@ build/
 *.egg-info/
 .coverage
 htmlcov/
+# Local agent settings (Claude Code)
+.claude/
 # Benchmark run outputs (commit curated reports deliberately, not raw runs)
 benchmarks/runs/
 logs/

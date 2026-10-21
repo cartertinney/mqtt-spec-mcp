@@ -79,9 +79,23 @@ VS Code (`.vscode/mcp.json`):
 
 This repository also contains both files pre-filled for working in the checkout
 itself: `.vscode/mcp.json` (VS Code, including agent-host sessions) and `.mcp.json`
-(Claude Code and other clients that read project-scoped servers). For Claude Code,
-`.claude/settings.json` allows the four read-only tools to run without a permission
-prompt.
+(Claude Code and other clients that read project-scoped servers). In Claude Code,
+the four tools are read-only, so you can let them run without a permission prompt
+by adding this to your own `.claude/settings.json` (this repository ignores
+`.claude/`):
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__mqtt-spec__mqtt_spec_outline",
+      "mcp__mqtt-spec__mqtt_spec_search",
+      "mcp__mqtt-spec__mqtt_spec_get",
+      "mcp__mqtt-spec__mqtt_spec_lookup"
+    ]
+  }
+}
+```
 
 After upgrading, restart the server and start a new conversation so the client
 drops any cached tool schemas.
@@ -574,6 +588,9 @@ prompt (1.6 points more accurate, 11 times the tokens), are in the same report;
 has the earlier runs, including `none` and the previous search design.
 
 ## Development
+
+[STATUS.md](STATUS.md) summarizes where the project stands, its known gaps and the
+planned next steps.
 
 ```bash
 uv sync --extra benchmark

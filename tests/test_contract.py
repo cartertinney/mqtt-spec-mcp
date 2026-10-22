@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from typing import Any
 
 import pytest
 
-from mqtt_spec_mcp.server import TOOLS, MqttSpecService
+from mqtt_spec_mcp.engine import SpecEngine
+from mqtt_spec_mcp.render import page_summary
+from mqtt_spec_mcp.server import (
+    TOOLS,
+    GetArgs,
+    LookupArgs,
+    MqttSpecService,
+    OutlineArgs,
+    SearchArgs,
+)
 from mqtt_spec_mcp.versions import PINS
 from tests.conftest import Call, JsonCall
 
@@ -104,6 +114,44 @@ def test_unknown_arguments_are_rejected(err: Callable[..., str]) -> None:
 
 def test_unknown_tool(call: Call) -> None:
     assert call("mqtt_spec_delete", version="5.0").is_error
+
+
+def _unadvertised_parameters() -> set[str]:
+    accepted = {
+        name
+        for model in (OutlineArgs, SearchArgs, GetArgs, LookupArgs)
+        for name in model.model_fields
+    }
+    advertised = {name for tool in TOOLS for name in tool.input_schema["properties"]}
+    return accepted - advertised
+
+
+def test_guidance_names_only_advertised_parameters(
+    call: Call, engines: dict[str, SpecEngine]
+) -> None:
+    """Responses to advertised arguments never suggest an unadvertised one: the
+    schemas forbid additional properties, so agents and clients cannot follow it."""
+    hidden = _unadvertised_parameters()
+    assert {"include_subsections", "max_chars"} <= hidden
+    suggestion = re.compile(r"\b(" + "|".join(sorted(hidden)) + r")\s*=")
+    outcomes = [
+        call("mqtt_spec_get", version=version, section=section)
+        for version, engine in engines.items()
+        for section in engine.sections
+    ]
+    cursor = page_summary(outcomes[0].text)["cursor"] or ""
+    for version in engines:
+        outcomes += [
+            call("mqtt_spec_get", version=version, section="4", cursor=cursor),
+            call("mqtt_spec_get", version=version, section="99.9"),
+            call("mqtt_spec_outline", version=version, parent="99.9"),
+            call("mqtt_spec_search", version=version, query="keep alive"),
+            call("mqtt_spec_search", version=version, query="zzqx unmatched"),
+            call("mqtt_spec_lookup", version=version, kind="property", query="x"),
+            call("mqtt_spec_lookup", version=version, kind="reason_code", query="0x93"),
+        ]
+    offending = [o.text[:200] for o in outcomes if suggestion.search(o.text)]
+    assert not offending
 
 
 # Envelopes -------------------------------------------------------------------------

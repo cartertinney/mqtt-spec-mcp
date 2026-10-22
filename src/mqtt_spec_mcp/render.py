@@ -134,6 +134,46 @@ def _table_line(cells: list[str]) -> str:
     return "| " + " | ".join(_escape_cell(c) for c in cells) + " |"
 
 
+# Shorter repeated cells, such as per-bit values (0 | 0 | 0), stay in their columns.
+MIN_MERGED_CELL_CHARS = 4
+
+
+def _span_label(header: list[str], first: int, last: int) -> str:
+    start, end = header[first].strip(), header[last].strip()
+    if first > 0 and start and end:
+        if header[0].strip().lower() == "bit":
+            return f"bits {start}–{end}"
+        return f"spans {start} to {end}"
+    return f"spans {last - first + 1} columns"
+
+
+def _merge_spans(header: list[str], row: list[str]) -> list[str]:
+    """Write a merged cell once, labelled with the columns it spans.
+
+    Indexes repeat a merged cell's text in every column it covers, which keeps
+    rows rectangular for lookups but repeats a long field name across eight bit
+    columns. A run is merged only when that shortens the row."""
+    cells: list[str] = []
+    start = 0
+    while start < len(row):
+        end = start
+        while end + 1 < len(row) and row[end + 1] == row[start]:
+            end += 1
+        text = row[start]
+        run = row[start : end + 1]
+        merged = f"{text} ({_span_label(header, start, end)})"
+        if (
+            end > start
+            and len(text) >= MIN_MERGED_CELL_CHARS
+            and len(merged) < len(" | ".join(run))
+        ):
+            cells.append(merged)
+        else:
+            cells.extend(run)
+        start = end + 1
+    return cells
+
+
 def _table_fragments(table: Table, limit: int) -> list[str]:
     rows = [list(r) for r in table.rows]
     width = max(len(r) for r in rows)
@@ -152,7 +192,7 @@ def _table_fragments(table: Table, limit: int) -> list[str]:
     fragments: list[str] = []
     current: list[str] = []
     for number, row in enumerate(body, start=1):
-        line = _table_line(row)
+        line = _table_line(_merge_spans(header, row))
         candidate = "\n".join([head, *current, line])
         if len(candidate) <= limit:
             current.append(line)
@@ -193,13 +233,7 @@ def _block_fragments(block: Paragraph | ListItem | Table, limit: int) -> list[st
 def placeholder(info: SectionInfo, *, subsections_follow: bool) -> str:
     if subsections_follow:
         return f"_Section {info.id} has no text of its own; its subsections follow._"
-    if not info.children:
-        return f"_Section {info.id} has no text of its own in the publication._"
-    return (
-        f"_Section {info.id} has no text of its own. Call mqtt_spec_get with "
-        "include_subsections=true, or mqtt_spec_outline with this section as parent, "
-        "to see its subsections._"
-    )
+    return f"_Section {info.id} has no text of its own in the publication._"
 
 
 def build_fragments(
@@ -296,6 +330,11 @@ def get_section(
     cursor: str | None,
 ) -> str:
     info = engine.resolve_section(section, "section")
+    # A section without text of its own consists of its subsections, so return them
+    # instead of an empty page that needs another call.
+    include_subsections = include_subsections or (
+        not info.section.blocks and bool(info.children)
+    )
     state = decode_cursor(engine, cursor) if cursor is not None else None
     if state is not None:
         if state.version != engine.version or state.sha != sha_prefix(
@@ -311,12 +350,15 @@ def get_section(
             or state.include_subsections != include_subsections
             or state.max_chars != max_chars
         ):
+            issued = (
+                f"for section {state.section}"
+                if state.section != info.id
+                else "with different page options"
+            )
             raise engine.error(
-                "The cursor does not match this request: it was issued for "
-                f"section={state.section!r}, "
-                f"include_subsections={str(state.include_subsections).lower()}, "
-                f"max_chars={state.max_chars}. Reuse identical arguments with the "
-                "cursor, or omit the cursor to start over."
+                f"The cursor does not match this request: it was issued {issued}. "
+                "Repeat the request that returned it, changing only the cursor, or "
+                "omit the cursor to start over."
             )
 
     banner = _banner(engine)

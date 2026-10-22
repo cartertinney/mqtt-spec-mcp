@@ -93,7 +93,7 @@ should address an uncovered part of the question. Use outline only to browse.
 | `version` | Required version. |
 | `section` | Required id, id plus matching title, or unambiguous title. |
 | `cursor` | Continuation cursor from a previous page. |
-| `include_subsections` | Accepted option to include descendants. |
+| `include_subsections` | Accepted option to include descendants. A section with no text of its own always includes them. |
 | `max_chars` | Accepted range 1,000-12,000; default 4,000. |
 
 ```json
@@ -101,8 +101,12 @@ should address an uncovered part of the question. Use outline only to browse.
 ```
 
 Pages include the section title, version scope, source, and a truncation footer.
-Tables are Markdown tables and list items use bullets. Pages never exceed
-`max_chars`.
+Tables are Markdown tables and list items use bullets. A merged table cell is
+written once with the columns it spans, for example
+`| byte 1 | String length MSB (bits 7–0) |`. Pages never exceed `max_chars`.
+
+A section with no text of its own, such as MQTT 5.0 section 4.13, returns its
+subsections rather than an empty page.
 
 When `Truncated: yes`, repeat the same arguments with the returned `Next cursor`.
 A cursor is bound to the version, section, `include_subsections`, and `max_chars`

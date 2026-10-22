@@ -369,9 +369,19 @@ appear in the body.
   followed by a space) that leaves the piece at least half full, else at the last
   word boundary.
 - Subsection headings use `#` × (1 + level difference), capped at 6.
-- A section without its own blocks renders a placeholder: "its subsections
-  follow" when they are included, otherwise a pointer to `include_subsections`
-  or `mqtt_spec_outline`.
+- A section without its own blocks renders the placeholder "its subsections
+  follow" and always includes its subsections (paged as usual), because an empty
+  page only costs another call. An earlier pointer to `include_subsections`
+  contradicted the advertised schema, which omits that parameter and forbids
+  additional properties; in the last dev pass agents met it in 11 of 864 calls and
+  never used it. Responses must not suggest unadvertised parameters
+  (`test_guidance_names_only_advertised_parameters`).
+- Indexes repeat a merged table cell in every column it covers, which keeps rows
+  rectangular for lookups. Get pages write a run of identical cells once, labelled
+  with its span (`String length MSB (bits 7–0)`), when that shortens the row and
+  the text has at least four characters, so per-bit values stay in their columns.
+  MQTT 5.0 section 1.5.4 fell from two pages to one. Search bodies keep the
+  repeated cells, leaving ranking unchanged.
 - Cursor (format 2) = URL-safe base64 (no padding) of
   `2,<version>,<first 12 hex of the source SHA-256>,<section>,<0|1>,<max_chars>,<position>`,
   about 50 characters. The 12-hex prefix distinguishes pinned publications while

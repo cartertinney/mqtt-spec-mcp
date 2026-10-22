@@ -183,6 +183,32 @@ appear in the body.
   3.1.1 applied -1.1 and edge -1.7): a whole list displaces other sentences. It is
   kept because a list shown whole is read correctly; a 600-character limit was
   worse (0.910).
+- Rule completion: a requirement label written after a sentence's full stop
+  ("... U+0000. [MQTT-1.5.4-2].") joins that sentence instead of becoming one of its
+  own, and a chosen normative sentence brings the rest of its paragraph while the
+  paragraph from that sentence stays within 700 characters. A sentence repeated
+  word for word is dropped as already shown only when it is not normative, and
+  never twice from the same place. Why: in the corpus 1.2.0 dev pass, excerpts
+  showed a rule but cut the sentence that completes it. The bare label took the
+  next-sentence slot, so "If a receiver ... receives ... U+0000 it is a Malformed
+  Packet" was missing in 13 of 23 MQTT 5.0 searches showing the U+0000 rule. 4.13.1
+  gives the Client and the Server the same "In the case of an error in any other
+  packet it SHOULD send a DISCONNECT ..." sentence; deduplication dropped the
+  Server's copy in 52 of 54 searches showing the Server's rule, so it read as if the
+  Server had no such recommendation. Answers relying on those excerpts contradicted
+  the answer key; grep answers read whole paragraphs. Replaying the dev pass's
+  searches, the misses fell to 0 of 24 and 6 of 52. The share of keyed fact
+  sentences shown rose from 0.812 to 0.823 on the seven audit-derived questions and
+  facts fully shown on the other 71 from 0.864 to 0.870, for 0.45% more characters.
+  Exempting normative sentences from deduplication without tracking where they were
+  shown let later parts of a multi-part pack re-select sentences an earlier part
+  had shown in the same section, spending their budget: 8% smaller packs and lower
+  coverage. Ranking is unchanged. In a dev pass re-running `mcp` against the same
+  stored `grep` answers (five models, 78 questions), quality on the 71 earlier
+  questions was unchanged (paired +0.000, CI -0.011 to +0.012); on the seven
+  audit-derived questions `mcp` moved from -0.057 to +0.001 against `grep`, with the
+  gains in the two questions whose failures were traced to these elisions (+0.28
+  and +0.21). Tokens per answer fell about 4% (578 fewer).
 - Related requirements: after the pack, up to 700 characters of labelled
   requirement sentences from the sections ranked 9th to 40th that are not in the
   pack, each sharing at least two distinct query terms, scored by the idf of those

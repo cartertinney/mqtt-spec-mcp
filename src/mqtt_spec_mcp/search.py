@@ -78,6 +78,8 @@ MIN_PART_CHARS = 2500
 # A chosen sentence in a list brings the list's lead-in ("The send quota is
 # incremented by 1:"), and the whole list when it is at most this long.
 LIST_BLOCK_CHARS = 1200
+# How far an excerpt follows a matched normative sentence through its paragraph.
+PARAGRAPH_REST_CHARS = 700
 # Related requirements: labelled sentences from sections ranked below the pack that
 # share at least RELATED_MIN_TERMS query terms, best first, in RELATED_CHARS more.
 RELATED_SECTIONS = 40
@@ -404,13 +406,23 @@ class SearchIndex:
                 best,
                 best + 1,
                 best - 1,
+                *_paragraph_rest(info.body, units, best),
                 *_list_context(units, blocks[rank], best),
             ):
                 current = chosen.get(rank, set())
                 if not 0 <= j < len(units) or j in current:
                     continue
                 text = " ".join(info.body[units[j][0] : units[j][1]].lower().split())
-                if len(text) >= MIN_DEDUP_CHARS and text in seen:
+                # Sentences an earlier query part already showed here are skipped.
+                # A rule repeated word for word elsewhere can bind a different
+                # party ("it" is the Client in one paragraph, the Server in the
+                # next), so only non-normative repeats are dropped as already shown.
+                location = f"\0{info.id}\0{units[j][0]}"
+                if location in seen or (
+                    len(text) >= MIN_DEDUP_CHARS
+                    and text in seen
+                    and not NORMATIVE_SENTENCE.search(info.body, *units[j])
+                ):
                     continue
                 trial = current | {j}
                 size = heading + _passage_size(units, trial)
@@ -421,6 +433,7 @@ class SearchIndex:
                 total += size - sizes.get(rank, 0)
                 chosen[rank], sizes[rank] = trial, size
                 seen.add(text)
+                seen.add(location)
         return [_Pick(docs[r], per_doc[r], chosen[r]) for r in sorted(chosen)]
 
     def related(
@@ -572,18 +585,27 @@ def window(text: str, anchor: int | None, budget: int) -> str:
 ELLIPSIS = "..."
 PASSAGE_GAP = " ... "
 _SENTENCE = re.compile(r"[^\n]*?(?:[.;!?](?=\s)|$)")
+# A requirement label after a sentence's full stop ("U+0000. [MQTT-1.5.4-2].")
+# would otherwise be a sentence of its own.
+_BARE_LABELS = re.compile(rf"(?:{LABEL_PATTERN.pattern}\s*)+[.;]?", re.IGNORECASE)
 
 
 def _units(text: str) -> list[tuple[int, int]]:
-    """Sentence-sized spans of ``text``: each line, split after . ; ! or ?."""
+    """Sentence-sized spans of ``text``: each line, split after . ; ! or ?. A span
+    holding only requirement labels joins the sentence before it on the same line,
+    so a labelled rule keeps its label and its next sentence stays its neighbour."""
     spans: list[tuple[int, int]] = []
     for line in re.finditer(r"[^\n]+", text):
+        first = len(spans)
         for match in _SENTENCE.finditer(line.group(0)):
             piece = match.group(0)
             if piece.strip():
                 start = line.start() + match.start() + len(piece) - len(piece.lstrip())
                 end = line.start() + match.start() + len(piece.rstrip())
-                spans.append((start, end))
+                if len(spans) > first and _BARE_LABELS.fullmatch(text, start, end):
+                    spans[-1] = (spans[-1][0], end)
+                else:
+                    spans.append((start, end))
     return spans
 
 
@@ -636,6 +658,25 @@ def _list_context(
     if sum(units[m][1] - units[m][0] for m in members) <= LIST_BLOCK_CHARS:
         return members
     return [lead] if lead is not None else []
+
+
+def _paragraph_rest(text: str, units: list[tuple[int, int]], i: int) -> list[int]:
+    """Units after ``i + 1`` in the paragraph of a normative unit ``i``, while the
+    paragraph from ``i`` stays within PARAGRAPH_REST_CHARS. A rule's conditions,
+    consequences and exceptions often follow it ("If a receiver ... it is a
+    Malformed Packet"; "In the case of an error in any other packet it SHOULD
+    send a DISCONNECT")."""
+    start, end = units[i]
+    if not NORMATIVE_SENTENCE.search(text, start, end):
+        return []
+    line_end = text.find("\n", end)
+    line_end = len(text) if line_end < 0 else line_end
+    rest: list[int] = []
+    for k in range(i + 2, len(units)):
+        if units[k][0] > line_end or units[k][1] - start > PARAGRAPH_REST_CHARS:
+            break
+        rest.append(k)
+    return rest
 
 
 def _passage_size(units: list[tuple[int, int]], chosen: set[int]) -> int:

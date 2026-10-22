@@ -163,6 +163,47 @@ def test_get_placeholder_for_empty_section(call: Call) -> None:
     assert "has no text of its own" in text
 
 
+def test_get_section_without_text_returns_its_subsections(call: Call) -> None:
+    first = call("mqtt_spec_get", version="5.0", section="4.13").text
+    assert "_Section 4.13 has no text of its own; its subsections follow._" in first
+    assert "## 4.13.1 Malformed Packet and Protocol Errors" in first
+    pages = [first]
+    while cursor := page_summary(pages[-1])["cursor"]:
+        outcome = call("mqtt_spec_get", version="5.0", section="4.13", cursor=cursor)
+        assert not outcome.is_error, outcome.text
+        pages.append(outcome.text)
+    assert any("## 4.13.2 Other errors" in page for page in pages)
+
+
+def test_get_merges_repeated_cells_of_a_merged_column(call: Call) -> None:
+    text = call("mqtt_spec_get", version="5.0", section="1.5.4").text
+    assert "| byte 1 | String length MSB (bits 7–0) |" in text
+    assert "String length MSB | String length MSB" not in text
+    assert "|  | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 1 |" in text
+    assert page_summary(text)["cursor"] is None
+
+
+def test_merge_spans_only_shortens_rows() -> None:
+    from mqtt_spec_mcp.render import _merge_spans
+
+    bits = ["Bit", "7", "6", "5", "4", "3", "2", "1", "0"]
+    assert _merge_spans(bits, ["byte 1", *["Packet type"] * 4, *["Reserved"] * 4]) == [
+        "byte 1",
+        "Packet type (bits 7–4)",
+        "Reserved (bits 3–0)",
+    ]
+    values = ["", "0", "0", "0", "0", "QoS2", "QoS2", "1", "1"]
+    assert _merge_spans(bits, values) == values
+    ids = ["Field", "Dec", "Hex"]
+    short = ["Name", "Identifier", "Identifier"]
+    assert _merge_spans(ids, short) == short
+    long = ["Name", "Property identifier", "Property identifier"]
+    merged = ["Name", "Property identifier (spans Dec to Hex)"]
+    assert _merge_spans(ids, long) == merged
+    first = _merge_spans(bits, ["Payload data"] * 9)[0]
+    assert first == "Payload data (spans 9 columns)"
+
+
 def test_get_subsections_and_continuation(call: Call) -> None:
     first = call(
         "mqtt_spec_get",

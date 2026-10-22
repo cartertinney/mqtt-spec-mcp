@@ -225,7 +225,8 @@ def test_placeholders_for_sections_without_text(call: Call) -> None:
     body = page.text.split("\n\n")
     assert body[2] == "_Section 3 has no text of its own; its subsections follow._"
     alone = call("mqtt_spec_get", version="5.0", section="3").text
-    assert "include_subsections=true" in alone
+    assert alone == page.text
+    assert "include_subsections" not in alone
     nested = call(
         "mqtt_spec_get",
         version="5.0",

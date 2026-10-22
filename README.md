@@ -21,11 +21,12 @@ Your MCP client starts the server on your machine and talks to it over stdio.
 There is no separate install step: configure the client to run
 `uvx mqtt-spec-mcp`, and [uv](https://docs.astral.sh/uv/) downloads the package
 from PyPI the first time, caches it, and starts it. uv also fetches a compatible
-Python (3.10 or newer) if you don't have one.
+Python (3.10 or newer) if you don't have one. Each time the client starts the
+server, uv checks PyPI for a newer release, so updates arrive automatically.
 
 1. [Install uv](https://docs.astral.sh/uv/getting-started/installation/).
-2. Add the server to your client, as shown below. The server itself needs no
-   environment variables, configuration files, flags, or network access.
+2. Add the server to your client, as shown below. The server needs no
+   environment variables, configuration files, or flags.
 
 The server is also listed in the [MCP Registry](https://registry.modelcontextprotocol.io)
 as `io.github.cartertinney/mqtt-spec-mcp`, for clients that install from it.
@@ -107,11 +108,17 @@ client to run the command `mqtt-spec-mcp`, with no arguments, instead of
 - **The first start times out.** The first launch downloads the package, which
   can take a few seconds. Download it ahead of time with
   `uvx --from mqtt-spec-mcp python -c pass`.
-- **Upgrading.** `uvx` keeps using the version it first downloaded. To update it,
-  run `uvx --from mqtt-spec-mcp@latest python -c pass`, then restart the server
-  and start a new conversation so the client drops cached tool schemas. To pin a
-  version, use `mqtt-spec-mcp@0.1.0` in place of `mqtt-spec-mcp` in the client's
-  arguments.
+- **Updates.** A new release is used from the next time your client starts the
+  server. uv reuses PyPI's answer for up to 10 minutes, so a release can take
+  that long to appear. After an update, start a new conversation so the client
+  drops cached tool schemas. To stay on one version, use `mqtt-spec-mcp@0.1.0`
+  in place of `mqtt-spec-mcp` in the client's arguments.
+- **No network access.** The server works offline, but starting it with `uvx`
+  needs to reach PyPI unless uv checked within the last 10 minutes. To run
+  without network access, install it once with `uv tool install mqtt-spec-mcp`
+  and configure the client to run `mqtt-spec-mcp`. `uvx mqtt-spec-mcp` then runs
+  the installed copy as well, and updates come only from
+  `uv tool upgrade mqtt-spec-mcp`.
 
 ## Tools
 

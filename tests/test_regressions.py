@@ -20,9 +20,11 @@ from mqtt_spec_mcp.search import (
     MULTI_PACK_CHARS,
     PACK_CHARS,
     PACK_SECTIONS,
+    PARAGRAPH_REST_CHARS,
     RELATED_CHARS,
     _list_blocks,
     _list_context,
+    _paragraph_rest,
     _units,
     query_parts,
     query_terms,
@@ -573,6 +575,73 @@ def test_list_item_brings_its_lead_in_and_list(
     assert any("0x82" in text for text in alias)
     # A list longer than LIST_BLOCK_CHARS without a lead-in adds nothing.
     assert context("4.8.2", "- If there's more than one Session subscribed") == []
+
+
+def test_bare_requirement_label_joins_its_sentence() -> None:
+    body = (
+        "A string MUST NOT include U+0000. [MQTT-1.5.4-2]. If a receiver gets one "
+        "it is malformed. Refer to 4.13.\n[MQTT-9.9-9]. Starts a line. "
+        "Two labels follow. [MQTT-1.1-1] [MQTT-1.1-2]; Last."
+    )
+    texts = [body[a:b] for a, b in _units(body)]
+    assert texts == [
+        "A string MUST NOT include U+0000. [MQTT-1.5.4-2].",
+        "If a receiver gets one it is malformed.",
+        "Refer to 4.13.",
+        "[MQTT-9.9-9].",
+        "Starts a line.",
+        "Two labels follow. [MQTT-1.1-1] [MQTT-1.1-2];",
+        "Last.",
+    ]
+
+
+def test_normative_sentence_brings_the_rest_of_its_paragraph() -> None:
+    body = (
+        "Servers MUST close it. It MAY send CONNACK. It SHOULD send DISCONNECT. "
+        "Use 0x81.\nNext paragraph. Plain text. More plain text."
+    )
+    units = _units(body)
+    rest = [body[a:b] for a, b in (units[k] for k in _paragraph_rest(body, units, 0))]
+    assert rest == ["It SHOULD send DISCONNECT.", "Use 0x81."]
+    assert _paragraph_rest(body, units, 4) == []  # not normative
+    limited = "x" * (PARAGRAPH_REST_CHARS - 30) + " MUST hold. A b. " + "y" * 60 + "."
+    units = _units(limited)
+    assert _paragraph_rest(limited, units, 0) == []  # the third sentence is too far
+
+
+def test_search_keeps_the_consequence_after_a_labelled_rule(call: Call) -> None:
+    # An agent's query from a dev-pass answer that then said section 1.5.4 gives
+    # no consequence for U+0000: the label used to fill the next-sentence slot.
+    query = (
+        "PUBLISH topic name UTF-8 encoded string U+0000 null character topic name "
+        "validation; receiver PUBLISH topic name; client sending PUBLISH topic name"
+    )
+    text = " ".join(call("mqtt_spec_search", version="5.0", query=query).text.split())
+    assert "U+0000. [MQTT-1.5.4-2]. If a receiver (Server or Client) receives" in text
+    assert "containing U+0000 it is a Malformed Packet" in text
+
+
+def test_repeated_rule_is_kept_for_each_party(call: Call) -> None:
+    # 4.13.1 gives the Client and the Server the same DISCONNECT sentence; an
+    # excerpt that drops the Server's copy as a duplicate reads as if the Server
+    # had no such recommendation.
+    query = (
+        "U+0000 UTF-8 encoded string; Malformed Packet Protocol Error DISCONNECT "
+        "close; Topic Name invalid"
+    )
+    text = " ".join(call("mqtt_spec_search", version="5.0", query=query).text.split())
+    rule = "In the case of an error in any other packet it SHOULD send a DISCONNECT"
+    client = text.index("When a Client detects")
+    server = text.index("When a Server detects")
+    assert rule in text[client:server]
+    assert rule in text[server : server + 700]
+
+
+def test_multi_part_pack_shows_a_sentence_once(ok: JsonCall) -> None:
+    query = "Topic Alias maximum; Topic Alias zero; Topic Alias mapping lifetime"
+    pack = ok("mqtt_spec_search", version="5.0", query=query)
+    text = " ".join("\n".join(r["snippet"] for r in pack["results"]).split())
+    assert text.count("A Topic Alias of 0 is not permitted.") == 1
 
 
 def test_query_parts() -> None:

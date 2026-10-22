@@ -61,9 +61,12 @@ ranked sections, plus up to 700 characters of related labelled requirements from
 other matching sections. Each section has a `## <id> <title>` heading.
 
 Sentences carrying the most query information are selected first, with neighbouring
-context. Normative sentences count double. List excerpts include their lead-in,
-and short lists are kept whole. Spare room goes first to the best-ranked section.
-Verbatim duplicate sentences are shown once.
+context. Normative sentences count double, and a chosen normative sentence brings
+the rest of a short paragraph, where its conditions and consequences usually
+follow. A requirement label stays with the sentence it labels. List excerpts
+include their lead-in, and short lists are kept whole. Spare room goes first to the
+best-ranked section. Verbatim duplicate sentences are shown once, except a
+normative sentence repeated in another place, which can bind a different party.
 
 `...` marks cuts. A heading ends with `(excerpt: N of M characters)` when less
 than 95% of its section is shown. The agent guidance treats unmarked sections as

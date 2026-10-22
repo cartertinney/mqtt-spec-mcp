@@ -165,6 +165,12 @@ package itself, delete the GitHub release and its tag, fix `main`, and release
 the same version again. A version that reached PyPI can't be replaced; fix it in
 the next version. Registry versions are likewise permanent once published.
 
+Clients configured with `uvx mqtt-spec-mcp` pick up each release the next time
+they start the server, within about 10 minutes of publishing, so a broken
+release reaches users quickly. If that happens, yank it on PyPI: uv and pip
+skip yanked releases unless someone pinned exactly that version. Then fix it in
+the next version.
+
 ## Before publishing
 
 - Run the checks above from a clean checkout and test the installed wheel.
